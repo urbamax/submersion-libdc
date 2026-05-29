@@ -883,6 +883,24 @@ shearwater_predator_parser_get_field (dc_parser_t *abstract, dc_field_type_t typ
 				return DC_STATUS_DATAFORMAT;
 			}
 			break;
+		case DC_FIELD_LOCATION: {
+			// flags: 0 = entry (opening record 9), 1 = exit (closing record 9).
+			// Submersion patch (Swift GPS exit) layered on top of upstream's
+			// GNSS-status detection. See
+			// packages/libdivecomputer_plugin/patches/0001-shearwater-swift-exit-gps.patch.
+			unsigned int gps_rec = (flags == 1) ? parser->closing[9] : parser->opening[9];
+			if (gps_rec == UNDEFINED || parser->logversion < 17)
+				return DC_STATUS_UNSUPPORTED;
+			gnss = data[gps_rec + 16];
+			latitude  = (signed int) array_uint32_be (data + gps_rec + 21);
+			longitude = (signed int) array_uint32_be (data + gps_rec + 25);
+			if (gnss != GNSS_FIX_2D && gnss != GNSS_FIX_3D)
+				return DC_STATUS_UNSUPPORTED;
+			location->latitude  = latitude  / 100000.0;
+			location->longitude = longitude / 100000.0;
+			location->altitude  = 0.0;
+			break;
+		}
 		default:
 			return DC_STATUS_UNSUPPORTED;
 		}

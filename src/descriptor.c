@@ -957,12 +957,13 @@ dc_filter_cressi (const dc_descriptor_t *descriptor, dc_transport_t transport, c
 static int
 dc_filter_halcyon (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata)
 {
-	static const unsigned int model[] = {
-		1, // Symbios HUD
-		7, // Symbios Handset
-	};
-
 	if (transport == DC_TRANSPORT_BLE) {
+		// Each Symbios row (HUD = model 1, Handset = model 7) shares this
+		// filter. dc_match_halcyon disambiguates models by the serial's [4:6]
+		// digits, so match against THIS descriptor's own model. Matching the
+		// union {1, 7} made both rows pass for any Symbios serial, so the
+		// first (HUD) always won and a Handset was mislabeled. See issue #357.
+		const unsigned int model[] = {dc_descriptor_get_model (descriptor)};
 		return DC_FILTER_INTERNAL (userdata, model, 0, dc_match_halcyon);
 	}
 

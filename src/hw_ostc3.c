@@ -454,6 +454,81 @@ hw_ostc3_transfer (hw_ostc3_device_t *device,
 	return DC_STATUS_SUCCESS;
 }
 
+// Number of times a download transfer is re-issued after a transient link
+// failure, plus the initial attempt. See hw_ostc3_transfer_retry below.
+#define HW_OSTC3_DOWNLOAD_ATTEMPTS 4
+
+// Delay (ms) before a retry, to let any in-flight bytes from the aborted
+// transfer drain so the purge that follows clears a quiescent link.
+#define HW_OSTC3_RETRY_DELAY 300
+
+// Issue 394: the OSTC nano (and the wider hw_ostc3 family) downloads over BLE
+// on iOS/macOS, where CoreBluetooth exposes no connection-interval control and
+// the device's BLE-to-UART bridge can drop a handful of bytes during the large
+// logbook/profile transfers. A single lost byte leaves hw_ostc3_read waiting
+// for data the device already finished sending, so the read times out and the
+// whole download aborts. The loss is intermittent and the device is idle and
+// responsive once a transfer stalls (it has sent its trailing ready byte and
+// is waiting for the next command), so re-issuing the command on the same
+// connection recovers. This wrapper retries the command/response transfer on a
+// transient error, resyncing the link in between; the per-transfer odds are
+// good, so a few attempts make the whole download robust. Non-download callers
+// (init, time sync, config, firmware) keep using hw_ostc3_transfer directly so
+// a write or firmware operation is never silently repeated.
+static dc_status_t
+hw_ostc3_transfer_retry (hw_ostc3_device_t *device,
+                  dc_event_progress_t *progress,
+                  unsigned char cmd,
+                  const unsigned char input[],
+                  unsigned int isize,
+                  unsigned char output[],
+                  unsigned int osize,
+                  unsigned int *actual,
+                  unsigned int delay)
+{
+	dc_device_t *abstract = (dc_device_t *) device;
+
+	// Preserve the progress counter: a partial attempt that later fails has
+	// already advanced progress->current (hw_ostc3_read bumps it per packet),
+	// and the retry re-reads and re-counts the same bytes. Restoring the
+	// snapshot before each attempt keeps the reported progress monotonic.
+	unsigned int current = progress ? progress->current : 0;
+
+	dc_status_t status = DC_STATUS_SUCCESS;
+	for (unsigned int attempt = 0; attempt < HW_OSTC3_DOWNLOAD_ATTEMPTS; ++attempt) {
+		if (progress)
+			progress->current = current;
+
+		status = hw_ostc3_transfer (device, progress, cmd, input, isize, output, osize, actual, delay);
+		if (status == DC_STATUS_SUCCESS || status == DC_STATUS_UNSUPPORTED)
+			return status;
+
+		// A cancellation is deliberate; stop without further attempts.
+		if (status == DC_STATUS_CANCELLED || device_is_cancelled (abstract))
+			return DC_STATUS_CANCELLED;
+
+		// Only re-issue on a transient link error: a stalled or short read, or
+		// an echo/ready mismatch left by a lost notification. A data-format or
+		// argument error is deterministic and would only fail again.
+		if (status != DC_STATUS_TIMEOUT && status != DC_STATUS_IO && status != DC_STATUS_PROTOCOL)
+			return status;
+
+		if (attempt + 1 >= HW_OSTC3_DOWNLOAD_ATTEMPTS)
+			break;
+
+		WARNING (abstract->context,
+			"Transfer 0x%02x failed (status %d); retrying (%u/%u).",
+			cmd, status, attempt + 2, HW_OSTC3_DOWNLOAD_ATTEMPTS);
+
+		// Resync the link: let any in-flight bytes from the aborted transfer
+		// drain, then discard them so the re-issued command's echo reads clean.
+		dc_iostream_sleep (device->iostream, HW_OSTC3_RETRY_DELAY);
+		dc_iostream_purge (device->iostream, DC_DIRECTION_ALL);
+	}
+
+	return status;
+}
+
 
 dc_status_t
 hw_ostc3_device_open (dc_device_t **out, dc_context_t *context, dc_iostream_t *iostream, unsigned int frog)
@@ -829,14 +904,14 @@ hw_ostc3_device_foreach (dc_device_t *abstract, dc_dive_callback_t callback, voi
 	// This is slower, but also works for older firmware versions.
 	unsigned int compact = 1;
 	if (!device->frog) {
-		rc = hw_ostc3_transfer (device, &progress, COMPACT,
+		rc = hw_ostc3_transfer_retry (device, &progress, COMPACT,
 				NULL, 0, header, RB_LOGBOOK_SIZE_COMPACT * RB_LOGBOOK_COUNT, NULL, NODELAY);
 	} else {
 		rc = DC_STATUS_UNSUPPORTED;
 	}
 	if (rc == DC_STATUS_UNSUPPORTED) {
 		compact = 0;
-		rc = hw_ostc3_transfer (device, &progress, HEADER,
+		rc = hw_ostc3_transfer_retry (device, &progress, HEADER,
 		          NULL, 0, header, RB_LOGBOOK_SIZE_FULL * RB_LOGBOOK_COUNT, NULL, NODELAY);
 	}
 	if (rc != DC_STATUS_SUCCESS) {
@@ -979,7 +1054,7 @@ hw_ostc3_device_foreach (dc_device_t *abstract, dc_dive_callback_t callback, voi
 
 		// Download the dive.
 		unsigned char number[1] = {idx};
-		rc = hw_ostc3_transfer (device, &progress, DIVE,
+		rc = hw_ostc3_transfer_retry (device, &progress, DIVE,
 			number, sizeof (number), profile, length, &length, NODELAY);
 		if (rc != DC_STATUS_SUCCESS) {
 			ERROR (abstract->context, "Failed to read the dive.");

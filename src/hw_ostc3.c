@@ -273,6 +273,90 @@ hw_ostc3_read (hw_ostc3_device_t *device, dc_event_progress_t *progress, unsigne
 	return rc;
 }
 
+// Read a dive profile whose true length is delimited by the device rather than
+// by the length declared in the dive header.
+//
+// Issue #394: some OSTC nano (hwOS) firmware declares a profile length a few
+// bytes larger than the data it actually streams. It terminates the profile
+// with the 0xFD 0xFD end-of-profile marker followed by the transfer's ready
+// byte, then goes idle. Reading the declared length therefore stalls forever on
+// bytes the device never sends, and the whole download aborts (result -7).
+//
+// Read up to `size` bytes (the declared length, an upper bound), but stop as
+// soon as the device signals the end of the profile: the 0xFD 0xFD marker
+// immediately followed by the `ready` byte (consumed here), or -- when the
+// ready byte arrives in a later packet or is lost -- the 0xFD 0xFD marker
+// followed by the read going quiet. The detected profile length is returned in
+// *actual, and *skip_ready is set when the trailing ready byte was already
+// consumed or the device idled without sending it, so the caller must not read
+// it again.
+//
+// A short read with no end-of-profile marker (a notification dropped mid
+// profile) still returns the error, so hw_ostc3_transfer_retry re-issues the
+// transfer exactly as before. A profile that fills the whole declared length
+// returns normally with the ready byte left for the caller to read -- the
+// unchanged behavior for firmware that declares the length correctly.
+static dc_status_t
+hw_ostc3_read_profile (hw_ostc3_device_t *device, dc_event_progress_t *progress,
+                      unsigned char data[], size_t size, unsigned char ready,
+                      size_t *actual, int *skip_ready)
+{
+	dc_device_t *abstract = (dc_device_t *) device;
+
+	*actual = 0;
+	*skip_ready = 0;
+
+	size_t nbytes = 0;
+	while (nbytes < size) {
+		// One GATT notification per read on BLE; bounded by the buffer.
+		size_t length = size - nbytes;
+
+		size_t got = 0;
+		dc_status_t rc = dc_iostream_read (device->iostream, data + nbytes, length, &got);
+		if (rc != DC_STATUS_SUCCESS || got == 0) {
+			// The device went quiet. If the buffer already ends with the
+			// end-of-profile marker, the declared length simply overran the
+			// real profile: accept what the device sent. The trailing ready
+			// byte never arrived (it would have been read above), so there is
+			// nothing left to read. Otherwise the profile was truncated
+			// mid-stream, so report the failure and let the transfer retry.
+			if (nbytes >= 2 && data[nbytes - 2] == 0xFD && data[nbytes - 1] == 0xFD) {
+				*actual = nbytes;
+				*skip_ready = 1;
+				return DC_STATUS_SUCCESS;
+			}
+			if (rc != DC_STATUS_SUCCESS)
+				return rc;
+			ERROR (abstract->context, "Failed to receive the packet.");
+			return DC_STATUS_TIMEOUT;
+		}
+
+		// Emit a progress event, matching hw_ostc3_read's per-packet cadence.
+		if (progress) {
+			progress->current += got;
+			device_event_emit (abstract, DC_EVENT_PROGRESS, progress);
+		}
+
+		nbytes += got;
+
+		// The device appends the ready byte right after the end-of-profile
+		// marker and then idles. Stop on that signature so the download does not
+		// wait out the read timeout once per dive, and so the consumed ready
+		// byte is not read again.
+		if (nbytes >= 3 && data[nbytes - 3] == 0xFD && data[nbytes - 2] == 0xFD &&
+			data[nbytes - 1] == ready) {
+			*actual = nbytes - 1;
+			*skip_ready = 1;
+			return DC_STATUS_SUCCESS;
+		}
+	}
+
+	// The profile filled the whole declared length: firmware that declares the
+	// length correctly. The trailing ready byte is read separately by the caller.
+	*actual = nbytes;
+	return DC_STATUS_SUCCESS;
+}
+
 static dc_status_t
 hw_ostc3_write (hw_ostc3_device_t *device, dc_event_progress_t *progress, const unsigned char data[], size_t size)
 {
@@ -319,6 +403,10 @@ hw_ostc3_transfer (hw_ostc3_device_t *device,
 	dc_status_t status = DC_STATUS_SUCCESS;
 	const hw_ostc3_logbook_t *layout = &hw_ostc3_logbook_full[device->frog];
 	unsigned int length = osize;
+
+	// Set when the DIVE profile read already consumed the trailing ready byte
+	// along with the end-of-profile marker, so it is not read again below.
+	int skip_ready = 0;
 
 	if (cmd == DIVE && length < RB_LOGBOOK_SIZE_FULL)
 		return DC_STATUS_INVALIDARGS;
@@ -406,12 +494,21 @@ hw_ostc3_transfer (hw_ostc3_device_t *device,
 				length = RB_LOGBOOK_SIZE_FULL + 5;
 			}
 
-			// Read the dive profile.
-			status = hw_ostc3_read (device, progress, output + RB_LOGBOOK_SIZE_FULL, length - RB_LOGBOOK_SIZE_FULL);
+			// Read the dive profile. Its true end is delimited by the device's
+			// end-of-profile marker and trailing ready byte rather than by the
+			// declared length, which some hwOS firmware over-states (issue #394).
+			// skip_ready is set when the read consumed the trailing ready byte.
+			size_t profile_size = 0;
+			status = hw_ostc3_read_profile (device, progress,
+				output + RB_LOGBOOK_SIZE_FULL, length - RB_LOGBOOK_SIZE_FULL,
+				ready, &profile_size, &skip_ready);
 			if (status != DC_STATUS_SUCCESS) {
 				ERROR (abstract->context, "Failed to receive the dive profile.");
 				return status;
 			}
+
+			// Shrink the dive length to the bytes the device actually sent.
+			length = RB_LOGBOOK_SIZE_FULL + (unsigned int) profile_size;
 
 			// Update and emit a progress event.
 			if (progress && osize > length) {
@@ -432,7 +529,7 @@ hw_ostc3_transfer (hw_ostc3_device_t *device,
 		dc_iostream_poll (device->iostream, delay);
 	}
 
-	if (cmd != EXIT) {
+	if (cmd != EXIT && !skip_ready) {
 		// Read the ready byte.
 		unsigned char answer[1] = {0};
 		status = dc_iostream_read (device->iostream, answer, sizeof (answer), NULL);

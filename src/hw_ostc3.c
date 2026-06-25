@@ -291,11 +291,22 @@ hw_ostc3_read (hw_ostc3_device_t *device, dc_event_progress_t *progress, unsigne
 // consumed or the device idled without sending it, so the caller must not read
 // it again.
 //
-// A short read with no end-of-profile marker (a notification dropped mid
-// profile) still returns the error, so hw_ostc3_transfer_retry re-issues the
-// transfer exactly as before. A profile that fills the whole declared length
-// returns normally with the ready byte left for the caller to read -- the
-// unchanged behavior for firmware that declares the length correctly.
+// A read that stalls with no end-of-profile marker yet (a notification dropped
+// before the marker arrived) still returns the error, so hw_ostc3_transfer_retry
+// re-issues the transfer as before. A profile that fills the whole declared
+// length returns normally with the ready byte left for the caller to read --
+// the unchanged behavior for firmware that declares the length correctly.
+//
+// Limitation: because the declared length cannot be trusted, the marker -- not
+// the byte count -- ends the profile, so a notification dropped *before* the
+// final marker (the same BLE bridge also loses bytes, issue #280) leaves a
+// buffer that still ends in 0xFD 0xFD and is accepted as complete, missing the
+// dropped bytes. hw_ostc3_device_foreach cannot catch this: its end-marker and
+// length checks compare the two declared length fields (dive header and profile
+// header) to each other, never to the received byte count, and the hwOS profile
+// carries no CRC -- so such a dive is stored corrupt. The retry narrows the
+// window (a clean attempt is accepted as soon as one arrives) but cannot close
+// it; only a less lossy link (e.g. BLE connection priority) does.
 static dc_status_t
 hw_ostc3_read_profile (hw_ostc3_device_t *device, dc_event_progress_t *progress,
                       unsigned char data[], size_t size, unsigned char ready,

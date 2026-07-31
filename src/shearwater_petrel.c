@@ -37,6 +37,11 @@
 #define DIVE_SIZE     0xFFFFFF
 
 #define RECORD_SIZE   0x20
+
+// Attempts per dive download (initial + retries) and the pre-retry delay
+// (ms), mirroring the hw_ostc3 BLE retry rationale (issues #394, #759).
+#define SHEARWATER_DIVE_ATTEMPTS 3
+#define SHEARWATER_RETRY_DELAY 300
 #define RECORD_COUNT  (MANIFEST_SIZE / RECORD_SIZE)
 
 typedef struct shearwater_petrel_device_t {
@@ -326,6 +331,7 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 	// contiguous prefix of the oldest dives, and the newest delivered dive
 	// remains a correct fingerprint to resume from on the next attempt.
 	unsigned int nrecords = size / RECORD_SIZE;
+	unsigned int delivered = 0;
 	for (unsigned int i = nrecords; i > 0; --i) {
 		unsigned int offset = (i - 1) * RECORD_SIZE;
 
@@ -336,11 +342,49 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 		// Get the address of the dive.
 		unsigned int address = array_uint32_be (data + offset + 20);
 
-		// Download the dive.
-		progress.current = NSTEPS * current;
-		progress.maximum = NSTEPS * maximum;
-		rc = shearwater_common_download (&device->base, buffer, base_addr + address, DIVE_SIZE, 1, &progress);
+		// Download the dive, retrying transient link errors (issue #759).
+		// One lost BLE notification used to abort the entire pass, and
+		// with the oldest-first order that failure struck before ANY dive
+		// had been delivered, so the app reported "Download failed" with
+		// zero dives and no partial-import offer. Mirrors the hw_ostc3
+		// download retry (issue #394).
+		rc = DC_STATUS_SUCCESS;
+		for (unsigned int attempt = 0; attempt < SHEARWATER_DIVE_ATTEMPTS; ++attempt) {
+			progress.current = NSTEPS * current;
+			progress.maximum = NSTEPS * maximum;
+			rc = shearwater_common_download (&device->base, buffer, base_addr + address, DIVE_SIZE, 1, &progress);
+			if (rc == DC_STATUS_SUCCESS)
+				break;
+			if (rc == DC_STATUS_CANCELLED || device_is_cancelled (abstract)) {
+				rc = DC_STATUS_CANCELLED;
+				break;
+			}
+			// Only re-issue on a transient link error; anything else is
+			// deterministic and would only fail again.
+			if (rc != DC_STATUS_TIMEOUT && rc != DC_STATUS_IO && rc != DC_STATUS_PROTOCOL)
+				break;
+			if (attempt + 1 < SHEARWATER_DIVE_ATTEMPTS) {
+				WARNING (abstract->context,
+					"Dive download failed (status %d); retrying (%u/%u).",
+					rc, attempt + 2, SHEARWATER_DIVE_ATTEMPTS);
+				dc_iostream_sleep (device->base.iostream, SHEARWATER_RETRY_DELAY);
+				dc_iostream_purge (device->base.iostream, DC_DIRECTION_ALL);
+			}
+		}
 		if (rc != DC_STATUS_SUCCESS) {
+			if (rc != DC_STATUS_CANCELLED && delivered > 0) {
+				// Persistent failure mid-pass: keep what was delivered
+				// instead of reporting a total failure. The oldest-first
+				// contract holds -- the delivered dives are a contiguous
+				// oldest prefix and the newest delivered fingerprint is a
+				// valid resume point for the next attempt (#759).
+				WARNING (abstract->context,
+					"Keeping %u downloaded dives after a persistent failure.",
+					delivered);
+				maximum = current;
+				rc = DC_STATUS_SUCCESS;
+				break;
+			}
 			ERROR (abstract->context, "Failed to download the dive.");
 			dc_buffer_free (buffer);
 			dc_buffer_free (manifests);
@@ -349,6 +393,7 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 
 		// Update the progress state.
 		current += 1;
+		delivered += 1;
 
 		unsigned char *buf = dc_buffer_get_data (buffer);
 		unsigned int len = dc_buffer_get_size (buffer);

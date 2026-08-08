@@ -483,6 +483,14 @@ shearwater_common_download (shearwater_common_device_t *device, dc_buffer_t *buf
 
 	// Verify the init response.
 	if (n < 2 || response[0] != UPLOAD_INIT_RESPONSE) {
+		if (n == 3 && response[0] == NAK && response[1] == UPLOAD_INIT_REQUEST) {
+			// A well-formed refusal, not line noise: the device cannot
+			// (or will not) serve the requested address. Return
+			// DC_STATUS_UNSUPPORTED, like the rdbi/wdbi NAK handling,
+			// so the caller can distinguish it from a protocol error.
+			ERROR (abstract->context, "Received NAK packet with error code 0x%02x.", response[2]);
+			return DC_STATUS_UNSUPPORTED;
+		}
 		ERROR (abstract->context, "Unexpected response packet.");
 		return DC_STATUS_PROTOCOL;
 	}

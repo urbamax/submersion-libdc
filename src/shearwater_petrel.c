@@ -263,6 +263,20 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 		progress.current = NSTEPS * current;
 		progress.maximum = NSTEPS * maximum;
 		rc = shearwater_common_download (&device->base, buffer, MANIFEST_ADDR, MANIFEST_SIZE, 0, &progress);
+		if (rc == DC_STATUS_UNSUPPORTED && dc_buffer_get_size (manifests) != 0) {
+			// The device refused (NAK'd) this page. When the record area
+			// ends exactly on a page boundary, a full final page is
+			// indistinguishable from a truncated one, so the walk asks
+			// for one page too many and the refusal is the normal end
+			// of the manifest, not an error. Roll back this page's
+			// speculative progress contribution. A refused FIRST page
+			// stays an error: nothing was read yet, so it cannot be an
+			// end-of-manifest signal.
+			WARNING (abstract->context, "Treating the refused manifest page as the end of the manifest.");
+			maximum -= 1 + RECORD_COUNT;
+			rc = DC_STATUS_SUCCESS;
+			break;
+		}
 		if (rc != DC_STATUS_SUCCESS) {
 			ERROR (abstract->context, "Failed to download the manifest.");
 			dc_buffer_free (buffer);
@@ -359,6 +373,7 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 	// remains a correct fingerprint to resume from on the next attempt.
 	unsigned int nrecords = size / RECORD_SIZE;
 	unsigned int delivered = 0;
+	unsigned int skipped = 0;
 	for (unsigned int i = nrecords; i > 0; --i) {
 		unsigned int offset = (i - 1) * RECORD_SIZE;
 
@@ -404,6 +419,22 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 			}
 		}
 		if (rc != DC_STATUS_SUCCESS) {
+			if (rc == DC_STATUS_UNSUPPORTED) {
+				// The device refused (NAK'd) the init request: the
+				// record references dive data the device can no longer
+				// serve, so neither a retry nor an abort can help.
+				// Skip it like a deleted record and keep the pass
+				// alive. The skipped dive is older than every dive
+				// still to come, so the newest-delivered-fingerprint
+				// resume contract is unaffected.
+				WARNING (abstract->context,
+					"Skipping manifest record %u: the device refused the dive at address %08x.",
+					i - 1, base_addr + address);
+				skipped++;
+				maximum -= 1;
+				rc = DC_STATUS_SUCCESS;
+				continue;
+			}
 			if (rc != DC_STATUS_CANCELLED && delivered > 0) {
 				// Persistent failure mid-pass: keep what was delivered
 				// instead of reporting a total failure. The oldest-first
@@ -431,6 +462,16 @@ shearwater_petrel_device_foreach (dc_device_t *abstract, dc_dive_callback_t call
 		unsigned int len = dc_buffer_get_size (buffer);
 		if (callback && !callback (buf, len, buf + 12, sizeof (device->fingerprint), userdata))
 			break;
+	}
+
+	// Refusal of every requested dive is not a poisoned record but
+	// something systemic (e.g. requesting dives at the wrong logbook base
+	// address); reporting success with zero dives would hide it.
+	if (rc == DC_STATUS_SUCCESS && delivered == 0 && skipped > 0) {
+		ERROR (abstract->context, "The device refused every dive request.");
+		dc_buffer_free (manifests);
+		dc_buffer_free (buffer);
+		return DC_STATUS_UNSUPPORTED;
 	}
 
 	// Update and emit a progress event.

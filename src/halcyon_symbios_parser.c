@@ -538,6 +538,7 @@ halcyon_symbios_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 				unsigned int ppo2 = data[offset + 2 + i];
 				sample.ppo2.sensor = i;
 				sample.ppo2.value = ppo2 / 100.0;
+				sample.ppo2.millivolt = 0;
 				if (callback) callback(DC_SAMPLE_PPO2, &sample, userdata);
 			}
 		} else if (type == ID_DECO) {
@@ -583,6 +584,7 @@ halcyon_symbios_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 				unsigned int ppo2 = data[offset + 2 + i];
 				sample.ppo2.sensor = i;
 				sample.ppo2.value = ppo2 / 100.0;
+				sample.ppo2.millivolt = 0;
 				if (callback) callback(DC_SAMPLE_PPO2, &sample, userdata);
 			}
 			unsigned int pressure = array_uint16_le (data + offset + 8);

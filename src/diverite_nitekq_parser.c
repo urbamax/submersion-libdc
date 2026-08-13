@@ -287,6 +287,7 @@ diverite_nitekq_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 				unsigned int ppo2 = data[offset];
 				sample.ppo2.sensor = DC_SENSOR_NONE;
 				sample.ppo2.value = ppo2 / 100.0;
+				sample.ppo2.millivolt = 0;
 				if (callback) callback (DC_SAMPLE_PPO2, &sample, userdata);
 				offset++;
 			}

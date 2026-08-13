@@ -1109,6 +1109,7 @@ oceanic_atom2_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callback_
 			if (parser->model == I330R || parser->model == I330R_C) {
 				sample.ppo2.sensor = DC_SENSOR_NONE;
 				sample.ppo2.value = data[offset + 9] / 100.0;
+				sample.ppo2.millivolt = 0;
 				if (callback) callback (DC_SAMPLE_PPO2, &sample, userdata);
 			}
 

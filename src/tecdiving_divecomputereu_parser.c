@@ -167,6 +167,7 @@ tecdiving_divecomputereu_parser_samples_foreach (dc_parser_t *abstract, dc_sampl
 		unsigned int ppo2 = data[offset + 1];
 		sample.ppo2.sensor = DC_SENSOR_NONE;
 		sample.ppo2.value = ppo2 / 10.0;
+		sample.ppo2.millivolt = 0;
 		if (callback) callback (DC_SAMPLE_PPO2, &sample, userdata);
 
 		// Setpoint

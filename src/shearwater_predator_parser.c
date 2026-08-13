@@ -19,6 +19,7 @@
  * MA 02110-1301 USA
  */
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -161,6 +162,7 @@ struct shearwater_predator_parser_t {
 	unsigned int aimode;
 	unsigned int hpccr;
 	unsigned int calibrated;
+	unsigned int calibration_trusted;
 	double calibration[3];
 	unsigned int divemode;
 	unsigned int units;
@@ -282,6 +284,7 @@ shearwater_common_parser_create (dc_parser_t **out, dc_context_t *context, const
 	parser->aimode = AI_OFF;
 	parser->hpccr = 0;
 	parser->calibrated = 0;
+	parser->calibration_trusted = 0;
 	for (unsigned int i = 0; i < 3; ++i) {
 		parser->calibration[i] = 0.0;
 	}
@@ -680,16 +683,22 @@ shearwater_predator_parser_cache (shearwater_predator_parser_t *parser)
 			nsensors++;
 		}
 	}
+	parser->calibrated = data[base];
+	parser->calibration_trusted = 1;
 	if (nsensors && nsensors == ndefaults) {
 		// If all (calibrated) sensors still have their factory default
 		// calibration values (2100), they are probably not calibrated
 		// properly. To avoid returning incorrect ppO2 values to the
-		// application, they are manually disabled (e.g. marked as
-		// uncalibrated).
-		WARNING (abstract->context, "Disabled all O2 sensors due to a default calibration value.");
-		parser->calibrated = 0;
-	} else {
-		parser->calibrated = data[base];
+		// application, the ppO2 conversion is suppressed.
+		//
+		// Submersion patch (O2 cell millivolts): upstream cleared the
+		// calibrated mask here, which dropped the cell samples entirely.
+		// The raw cell output is measured data and needs no calibration to
+		// be meaningful, so the samples are still reported -- only the
+		// derived ppO2 is withheld. See
+		// packages/libdivecomputer_plugin/patches/0007-shearwater-o2-cell-millivolts.patch.
+		WARNING (abstract->context, "Disabled the O2 sensor ppO2 conversion due to a default calibration value.");
+		parser->calibration_trusted = 0;
 	}
 
 	// Get the dive mode from the header (if available).
@@ -993,21 +1002,32 @@ shearwater_predator_parser_samples_foreach (dc_parser_t *abstract, dc_sample_cal
 			if (ccr) {
 				// PPO2
 				if ((status & PPO2_EXTERNAL) == 0) {
+					// Submersion patch (O2 cell millivolts): the cells are
+					// logged as raw millivolts and converted with the
+					// calibration value from the header. Report the
+					// millivolts unconditionally, and the derived ppO2 only
+					// when the calibration can be trusted.
+					const unsigned int cell_mv[3] = {
+						data[offset + pnf + 12],
+						data[offset + pnf + 14],
+						data[offset + pnf + 15],
+					};
+
 					sample.ppo2.sensor = DC_SENSOR_NONE;
 					sample.ppo2.value = data[offset + pnf + 6] / 100.0;
+					sample.ppo2.millivolt = 0;
 					if (callback) callback (DC_SAMPLE_PPO2, &sample, userdata);
 
-					sample.ppo2.sensor = 0;
-					sample.ppo2.value = data[offset + pnf + 12] * parser->calibration[0];
-					if (callback && (parser->calibrated & 0x01)) callback (DC_SAMPLE_PPO2, &sample, userdata);
-
-					sample.ppo2.sensor = 1;
-					sample.ppo2.value = data[offset + pnf + 14] * parser->calibration[1];
-					if (callback && (parser->calibrated & 0x02)) callback (DC_SAMPLE_PPO2, &sample, userdata);
-
-					sample.ppo2.sensor = 2;
-					sample.ppo2.value = data[offset + pnf + 15] * parser->calibration[2];
-					if (callback && (parser->calibrated & 0x04)) callback (DC_SAMPLE_PPO2, &sample, userdata);
+					for (unsigned int i = 0; i < 3; ++i) {
+						if (!(parser->calibrated & (1 << i)))
+							continue;
+						sample.ppo2.sensor = i;
+						sample.ppo2.millivolt = cell_mv[i];
+						sample.ppo2.value = parser->calibration_trusted
+							? cell_mv[i] * parser->calibration[i]
+							: NAN;
+						if (callback) callback (DC_SAMPLE_PPO2, &sample, userdata);
+					}
 				}
 
 				// Setpoint

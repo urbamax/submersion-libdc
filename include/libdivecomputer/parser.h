@@ -275,6 +275,13 @@ typedef union dc_sample_value_t {
 	struct {
 		unsigned int sensor;
 		double value;
+		/* Submersion patch (O2 cell millivolts): raw output of the cell, in
+		 * millivolts, or zero when the device does not report it (including
+		 * the DC_SENSOR_NONE aggregate). Cells are measured in millivolts and
+		 * converted to a partial pressure with a calibration value; where that
+		 * calibration is missing or untrustworthy, `value` is NAN while this
+		 * field still carries the measurement. */
+		unsigned int millivolt;
 	} ppo2;
 	double cns;
 	struct {

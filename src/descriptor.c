@@ -582,6 +582,74 @@ dc_match_prefix_with_hex (const void *key, const void *value)
 	return 1;
 }
 
+/*
+ * Match a Seac model word optionally preceded by the vendor name and followed
+ * by a serial number.
+ *
+ * The Tablet is the only Seac descriptor that speaks BLE, so the digits in its
+ * advertised name identify the unit, not the model, and nothing downstream
+ * reads them. Matching them with dc_match_prefix_with_number therefore buys no
+ * disambiguation while rejecting every spelling but "Tablet" plus bare ASCII
+ * digits: a separator or a letter anywhere in the serial made the scanner drop
+ * the advertisement, and the computer never appeared in the device list
+ * (submersion issue #1419).
+ *
+ * A plain prefix match is not the answer either. "Tablet" is an ordinary
+ * English word, and claiming every nearby peripheral whose name starts with it
+ * would promise the Seac protocol to hardware that cannot speak it -- a
+ * mislabelled device is a worse outcome than an undiscovered one.
+ *
+ * So: an optional "Seac" vendor word, the model word, then either nothing or a
+ * single separator followed by one serial token that is alphanumeric and
+ * contains at least one digit.
+ */
+static int
+dc_match_seac_name (const void *key, const void *value)
+{
+	const char *str = (const char *) key;
+	const char *prefix = *(const char * const *) value;
+
+	size_t n = strlen (prefix);
+	size_t i = 0;
+	unsigned int digits = 0;
+
+	/* Only strip the vendor word when the model word really follows it, so
+	 * an advertisement of "Seac" alone stays unmatched. */
+	if (strncasecmp (str, "Seac", 4) == 0) {
+		const char *rest = str + 4;
+		if (*rest == ' ' || *rest == '-' || *rest == '_') {
+			rest++;
+		}
+		if (strncasecmp (rest, prefix, n) == 0) {
+			str = rest;
+		}
+	}
+
+	if (strncasecmp (str, prefix, n) != 0) {
+		return 0;
+	}
+	str += n;
+
+	if (str[0] == 0) {
+		return 1;
+	}
+
+	if (str[0] == ' ' || str[0] == '-' || str[0] == '_') {
+		str++;
+	}
+
+	for (i = 0; str[i] != 0; ++i) {
+		const char c = str[i];
+		if (c >= '0' && c <= '9') {
+			digits++;
+		} else if ((c < 'A' || c > 'Z') && (c < 'a' || c > 'z')) {
+			return 0;
+		}
+	}
+
+	return digits != 0;
+}
+
 static int
 dc_match_oceanic (const void *key, const void *value)
 {
@@ -993,7 +1061,7 @@ dc_filter_seac (const dc_descriptor_t *descriptor, dc_transport_t transport, con
 	};
 
 	if (transport == DC_TRANSPORT_BLE) {
-		return DC_FILTER_INTERNAL (userdata, bluetooth, 0, dc_match_prefix_with_number);
+		return DC_FILTER_INTERNAL (userdata, bluetooth, 0, dc_match_seac_name);
 	}
 
 	return 1;

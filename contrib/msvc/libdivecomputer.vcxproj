@@ -269,6 +269,9 @@
     <ClCompile Include="..\..\src\suunto_eon.c" />
     <ClCompile Include="..\..\src\suunto_eonsteel.c" />
     <ClCompile Include="..\..\src\suunto_eonsteel_parser.c" />
+    <ClCompile Include="..\..\src\suunto_nautic.c" />
+    <ClCompile Include="..\..\src\suunto_nautic_parser.c" />
+    <ClCompile Include="..\..\src\heatshrink\heatshrink_decoder.c" />
     <ClCompile Include="..\..\src\suunto_eon_parser.c" />
     <ClCompile Include="..\..\src\suunto_solution.c" />
     <ClCompile Include="..\..\src\suunto_solution_parser.c" />
@@ -380,6 +383,10 @@
     <ClInclude Include="..\..\src\suunto_d9.h" />
     <ClInclude Include="..\..\src\suunto_eon.h" />
     <ClInclude Include="..\..\src\suunto_eonsteel.h" />
+    <ClInclude Include="..\..\src\suunto_nautic.h" />
+    <ClInclude Include="..\..\src\heatshrink\heatshrink_decoder.h" />
+    <ClInclude Include="..\..\src\heatshrink\heatshrink_common.h" />
+    <ClInclude Include="..\..\src\heatshrink\heatshrink_config.h" />
     <ClInclude Include="..\..\src\suunto_solution.h" />
     <ClInclude Include="..\..\src\suunto_vyper.h" />
     <ClInclude Include="..\..\src\suunto_vyper2.h" />

@@ -102,6 +102,9 @@ LOCAL_SRC_FILES := \
 	src/suunto_eon_parser.c \
 	src/suunto_eonsteel.c \
 	src/suunto_eonsteel_parser.c \
+	src/suunto_nautic.c \
+	src/suunto_nautic_parser.c \
+	src/heatshrink/heatshrink_decoder.c \
 	src/suunto_solution.c \
 	src/suunto_solution_parser.c \
 	src/suunto_vyper2.c \

@@ -49,6 +49,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "suunto_nautic.h"
 #include "context-private.h"

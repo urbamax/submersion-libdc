@@ -610,6 +610,12 @@ dc_match_seac_separator (char c)
 }
 
 static int
+dc_match_seac_padding (char c)
+{
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static int
 dc_match_seac_name (const void *key, const void *value)
 {
 	const char *str = (const char *) key;
@@ -645,10 +651,12 @@ dc_match_seac_name (const void *key, const void *value)
 	}
 	str += n;
 
-	/* Ignore trailing padding. A dangling separator or space leaves no serial
-	 * token at all, which is the bare model word rather than a foreign name. */
+	/* Ignore trailing whitespace padding, which leaves no serial token at all
+	 * and so is the bare model word rather than a foreign name. Only whitespace
+	 * counts: a dangling '-' or '_' promises a serial token, so a name ending
+	 * on one is malformed rather than padded. */
 	length = strlen (str);
-	while (length > 0 && dc_match_seac_separator (str[length - 1])) {
+	while (length > 0 && dc_match_seac_padding (str[length - 1])) {
 		length--;
 	}
 
@@ -659,6 +667,9 @@ dc_match_seac_name (const void *key, const void *value)
 	if (dc_match_seac_separator (str[0])) {
 		str++;
 		length--;
+		if (length == 0) {
+			return 0;
+		}
 	} else if (str[0] < '0' || str[0] > '9') {
 		/* Without a separator a letter just continues the model word, as in
 		 * "Tabletop", so it does not begin a serial. Requiring a digit here

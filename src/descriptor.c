@@ -604,6 +604,12 @@ dc_match_prefix_with_hex (const void *key, const void *value)
  * contains at least one digit.
  */
 static int
+dc_match_seac_separator (char c)
+{
+	return c == ' ' || c == '-' || c == '_';
+}
+
+static int
 dc_match_seac_name (const void *key, const void *value)
 {
 	const char *str = (const char *) key;
@@ -611,14 +617,23 @@ dc_match_seac_name (const void *key, const void *value)
 
 	size_t n = strlen (prefix);
 	size_t i = 0;
+	size_t length = 0;
 	unsigned int digits = 0;
 
 	/* Only strip the vendor word when the model word really follows it, so
-	 * an advertisement of "Seac" alone stays unmatched. */
+	 * an advertisement of "Seac" alone stays unmatched. The manufacturer is
+	 * Seacsub S.p.A. and its own marketing writes "SEAC SUB", so the longer
+	 * spellings have to be stripped too. */
 	if (strncasecmp (str, "Seac", 4) == 0) {
 		const char *rest = str + 4;
-		if (*rest == ' ' || *rest == '-' || *rest == '_') {
+		if (dc_match_seac_separator (*rest)) {
 			rest++;
+		}
+		if (strncasecmp (rest, "sub", 3) == 0) {
+			rest += 3;
+			if (dc_match_seac_separator (*rest)) {
+				rest++;
+			}
 		}
 		if (strncasecmp (rest, prefix, n) == 0) {
 			str = rest;
@@ -630,15 +645,29 @@ dc_match_seac_name (const void *key, const void *value)
 	}
 	str += n;
 
-	if (str[0] == 0) {
+	/* Ignore trailing padding. A dangling separator or space leaves no serial
+	 * token at all, which is the bare model word rather than a foreign name. */
+	length = strlen (str);
+	while (length > 0 && dc_match_seac_separator (str[length - 1])) {
+		length--;
+	}
+
+	if (length == 0) {
 		return 1;
 	}
 
-	if (str[0] == ' ' || str[0] == '-' || str[0] == '_') {
+	if (dc_match_seac_separator (str[0])) {
 		str++;
+		length--;
+	} else if (str[0] < '0' || str[0] > '9') {
+		/* Without a separator a letter just continues the model word, as in
+		 * "Tabletop", so it does not begin a serial. Requiring a digit here
+		 * is what stops an ordinary tablet from being claimed as a dive
+		 * computer merely because its name carries a number somewhere. */
+		return 0;
 	}
 
-	for (i = 0; str[i] != 0; ++i) {
+	for (i = 0; i < length; ++i) {
 		const char c = str[i];
 		if (c >= '0' && c <= '9') {
 			digits++;

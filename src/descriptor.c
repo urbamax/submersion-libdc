@@ -63,6 +63,7 @@ static int dc_filter_oceans (const dc_descriptor_t *descriptor, dc_transport_t t
 static int dc_filter_divesoft (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata);
 static int dc_filter_cressi (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata);
 static int dc_filter_halcyon (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata);
+static int dc_filter_suunto_nautic (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata);
 static int dc_filter_seac (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata);
 
 static dc_status_t dc_descriptor_iterator_next (dc_iterator_t *iterator, void *item);
@@ -492,6 +493,9 @@ static const dc_descriptor_t g_descriptors[] = {
 	/* Halcyon Symbios */
 	{"Halcyon", "Symbios HUD",     DC_FAMILY_HALCYON_SYMBIOS, 1, DC_TRANSPORT_BLE, dc_filter_halcyon},
 	{"Halcyon", "Symbios Handset", DC_FAMILY_HALCYON_SYMBIOS, 7, DC_TRANSPORT_BLE, dc_filter_halcyon},
+	/* Suunto Nautic / Ocean ("Vaasa" generation) */
+	{"Suunto", "Nautic", DC_FAMILY_SUUNTO_NAUTIC, 0, DC_TRANSPORT_BLE, dc_filter_suunto_nautic},
+	{"Suunto", "Ocean",  DC_FAMILY_SUUNTO_NAUTIC, 1, DC_TRANSPORT_BLE, dc_filter_suunto_nautic},
 };
 
 static int
@@ -1069,6 +1073,21 @@ dc_filter_halcyon (const dc_descriptor_t *descriptor, dc_transport_t transport, 
 		// first (HUD) always won and a Handset was mislabeled. See issue #357.
 		const unsigned int model[] = {dc_descriptor_get_model (descriptor)};
 		return DC_FILTER_INTERNAL (userdata, model, 0, dc_match_halcyon);
+	}
+
+	return 1;
+}
+
+static int
+dc_filter_suunto_nautic (const dc_descriptor_t *descriptor, dc_transport_t transport, const void *userdata)
+{
+	static const char * const bluetooth[] = {
+		"Suunto Nautic",
+		"Suunto Ocean",
+	};
+
+	if (transport == DC_TRANSPORT_BLE) {
+		return DC_FILTER_INTERNAL (userdata, bluetooth, 0, dc_match_prefix);
 	}
 
 	return 1;

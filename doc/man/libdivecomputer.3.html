@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<!-- This is an automatically generated file.  Do not edit.
+   libdivecomputer
+  
+   Copyright (C) 2017 Kristaps Dzonsons <kristaps@bsd.lv>
+  
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+  
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+  
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301 USA
+   -->
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="mandoc.css" type="text/css" media="all"/>
+  <title>DIVECOMPUTER(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">DIVECOMPUTER(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">DIVECOMPUTER(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp"><code class="Nm">divecomputer</code> &#x2014;
+    <span class="Nd">communicate with dive computers</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LIBRARY"><a class="permalink" href="#LIBRARY">LIBRARY</a></h1>
+<p class="Pp"><span class="Lb">library
+  &#x201C;libdivecomputer&#x201D;</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp">The <code class="Nm">divecomputer</code> library is a
+    cross-platform and open source library for communication with dive computers
+    from various manufacturers. Systems interfacing with
+    <code class="Nm">divecomputer</code> must link with
+    <code class="Fl">-l</code><var class="Ar">divecomputer</var>.</p>
+<p class="Pp">A system wishing to query dives in a dive computer generally
+    follows these steps:</p>
+<ol class="Bl-enum">
+  <li>Create a new context with
+      <a class="Xr" href="dc_context_new.3.html">dc_context_new(3)</a> to
+      initialize the library. Logging can be controlled with
+      <a class="Xr" href="dc_context_set_logfunc.3.html">dc_context_set_logfunc(3)</a>
+      and
+      <a class="Xr" href="dc_context_set_loglevel.3.html">dc_context_set_loglevel(3)</a>.</li>
+  <li>Find a descriptor for their dive computer by iterating through
+      <a class="Xr" href="dc_descriptor_iterator_new.3.html">dc_descriptor_iterator_new(3)</a>
+      and searching by name, vendor, or product family.</li>
+  <li>Find the transport to use for the communication. To determine the
+      supported transports use
+      <a class="Xr" href="dc_descriptor_get_transports.3.html">dc_descriptor_get_transports(3)</a>.</li>
+  <li>Find the hardware device corresponding to the connected dive computer by
+      iterating through
+      <a class="Xr" href="dc_usbhid_iterator_new.3.html">dc_usbhid_iterator_new(3)</a>,
+      <a class="Xr" href="dc_serial_iterator_new.3.html">dc_serial_iterator_new(3)</a>,
+      <a class="Xr" href="dc_irda_iterator_new.3.html">dc_irda_iterator_new(3)</a>
+      or
+      <a class="Xr" href="dc_bluetooth_iterator_new.3.html">dc_bluetooth_iterator_new(3)</a>.</li>
+  <li>Open the transport communcations with
+      <a class="Xr" href="dc_usbhid_open.3.html">dc_usbhid_open(3)</a>,
+      <a class="Xr" href="dc_serial_open.3.html">dc_serial_open(3)</a>,
+      <a class="Xr" href="dc_irda_open.3.html">dc_irda_open(3)</a> or
+      <a class="Xr" href="dc_bluetooth_open.3.html">dc_bluetooth_open(3)</a>.</li>
+  <li>Open a connection to the dive computer with
+      <a class="Xr" href="dc_device_open.3.html">dc_device_open(3)</a>.
+      Optionally use
+      <a class="Xr" href="dc_device_set_events.3.html">dc_device_set_events(3)</a>,
+      <a class="Xr" href="dc_device_set_fingerprint.3.html">dc_device_set_fingerprint(3)</a>
+      and
+      <a class="Xr" href="dc_device_set_cancel.3.html">dc_device_set_cancel(3)</a>
+      to set the logging events, last-seen fingerprint, and cancel routine,
+      respectively.</li>
+  <li>Iterate over all dives with
+      <a class="Xr" href="dc_device_foreach.3.html">dc_device_foreach(3)</a>.</li>
+  <li>For each iterated dive, create a new parser with
+      <a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a>.</li>
+  <li>Get attributes of the parsed dive with
+      <a class="Xr" href="dc_parser_get_field.3.html">dc_parser_get_field(3)</a>.</li>
+  <li>Iterate through the dive's samples (recorded data) with
+      <a class="Xr" href="dc_parser_samples_foreach.3.html">dc_parser_samples_foreach(3)</a>.</li>
+</ol>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="RETURN_VALUES"><a class="permalink" href="#RETURN_VALUES">RETURN
+  VALUES</a></h1>
+<p class="Pp">Most <code class="Nm">libdivecomputer</code> functions return with
+    a <var class="Vt">dc_status_t</var> type with the following possible
+  values:</p>
+<dl class="Bl-tag">
+  <dt id="DC_STATUS_SUCCESS"><a class="permalink" href="#DC_STATUS_SUCCESS"><code class="Dv">DC_STATUS_SUCCESS</code></a></dt>
+  <dd>Completion with success: not an error.</dd>
+  <dt id="DC_STATUS_DONE"><a class="permalink" href="#DC_STATUS_DONE"><code class="Dv">DC_STATUS_DONE</code></a></dt>
+  <dd>End of an iterator: not an error.</dd>
+  <dt id="DC_STATUS_UNSUPPORTED"><a class="permalink" href="#DC_STATUS_UNSUPPORTED"><code class="Dv">DC_STATUS_UNSUPPORTED</code></a></dt>
+  <dd>Feature not implemented or not supported by device. (The difference
+      depends on the context. Since <code class="Nm">libdivecomputer</code> is
+      largely based on reverse engineering, we often can't even tell them
+      apart.)</dd>
+  <dt id="DC_STATUS_INVALIDARGS"><a class="permalink" href="#DC_STATUS_INVALIDARGS"><code class="Dv">DC_STATUS_INVALIDARGS</code></a></dt>
+  <dd>Invalid parameter. Usually indicates caller bug.</dd>
+  <dt id="DC_STATUS_NOMEMORY"><a class="permalink" href="#DC_STATUS_NOMEMORY"><code class="Dv">DC_STATUS_NOMEMORY</code></a></dt>
+  <dd>Out of memory.</dd>
+  <dt id="DC_STATUS_NODEVICE"><a class="permalink" href="#DC_STATUS_NODEVICE"><code class="Dv">DC_STATUS_NODEVICE</code></a></dt>
+  <dd>Device not found. In this context the device refers to the low-level
+      communication device (serial, bluetooth, irda, etc), not the dive
+      computer. In most cases, and especially with serial communication, we
+      can't detect whether the dive computer is present. This is always detected
+      indirectly: no response is received, and thus a timeout error.</dd>
+  <dt id="DC_STATUS_NOACCESS"><a class="permalink" href="#DC_STATUS_NOACCESS"><code class="Dv">DC_STATUS_NOACCESS</code></a></dt>
+  <dd>Access denied (again, to the low-level communication device).</dd>
+  <dt id="DC_STATUS_TIMEOUT"><a class="permalink" href="#DC_STATUS_TIMEOUT"><code class="Dv">DC_STATUS_TIMEOUT</code></a></dt>
+  <dd>See <code class="Dv">DC_STATUS_NODEVICE</code>.</dd>
+  <dt id="DC_STATUS_IO"><a class="permalink" href="#DC_STATUS_IO"><code class="Dv">DC_STATUS_IO</code></a></dt>
+  <dd>Any other I/O error.</dd>
+  <dt id="DC_STATUS_PROTOCOL"><a class="permalink" href="#DC_STATUS_PROTOCOL"><code class="Dv">DC_STATUS_PROTOCOL</code></a></dt>
+  <dd>Encountered unexpected data in the communication protocol data packets,
+      e.g., while downloading.</dd>
+  <dt id="DC_STATUS_DATAFORMAT"><a class="permalink" href="#DC_STATUS_DATAFORMAT"><code class="Dv">DC_STATUS_DATAFORMAT</code></a></dt>
+  <dd>Encountered unexpected data in the interpretation of data contents, e.g.,
+      while parsing.</dd>
+  <dt id="DC_STATUS_CANCELLED"><a class="permalink" href="#DC_STATUS_CANCELLED"><code class="Dv">DC_STATUS_CANCELLED</code></a></dt>
+  <dd>Returned when the cancel callback requested to cancel the operation. Note
+      that cancellation is only checked at specific (safe) points, so it's
+      certainly possible it may not get noticed immediately and still return
+      <code class="Dv">DC_STATUS_SUCCESS</code>.</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><a class="Xr" href="dc_context_new.3.html">dc_context_new(3)</a>,
+    <a class="Xr" href="dc_descriptor_iterator_new.3.html">dc_descriptor_iterator_new(3)</a>
+    <a class="Xr" href="dc_device_open.3.html">dc_device_open(3)</a>
+    <a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h1>
+<p class="Pp">The <span class="Lb">library
+    &#x201C;libdivecomputer&#x201D;</span> library was written by
+    <span class="An">Jef Driesen</span>,
+    <a class="Mt" href="mailto:jef@libdivecomputer.org">jef@libdivecomputer.org</a>.
+    These manpages were written by
+  <br/>
+  <span class="An">Kristaps Dzonsons</span>,
+    <a class="Mt" href="mailto:kristaps@bsd.lv">kristaps@bsd.lv</a>.</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">January 5, 2017</td>
+    <td class="foot-os">macOS 26.6</td>
+  </tr>
+</table>
+</body>
+</html>

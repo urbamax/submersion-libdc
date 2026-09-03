@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<!-- This is an automatically generated file.  Do not edit.
+   libdivecomputer
+  
+   Copyright (C) 2017 Kristaps Dzonsons <kristaps@bsd.lv>
+  
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+  
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+  
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301 USA
+   -->
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="mandoc.css" type="text/css" media="all"/>
+  <title>DC_PARSER_GET_FIELD(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">DC_PARSER_GET_FIELD(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">DC_PARSER_GET_FIELD(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp"><code class="Nm">dc_parser_get_field</code> &#x2014;
+    <span class="Nd">extract a field from a parsed dive</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LIBRARY"><a class="permalink" href="#LIBRARY">LIBRARY</a></h1>
+<p class="Pp"><span class="Lb">library
+  &#x201C;libdivecomputer&#x201D;</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h1>
+<p class="Pp"><code class="In">#include
+    &lt;<a class="In">libdivecomputer/parser.h</a>&gt;</code></p>
+<p class="Pp"><var class="Ft">dc_status_t</var>
+  <br/>
+  <code class="Fn">dc_parser_get_field</code>(<var class="Fa">dc_parser_t
+    *parser</var>, <var class="Fa">dc_field_type_t type</var>,
+    <var class="Fa">unsigned int flags</var>, <var class="Fa">void
+    *value</var>);</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp">Extract a field from a dive, <var class="Fa">parser</var>,
+    previously initialised with
+    <a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a>. The
+    <var class="Fa">value</var> field type depends upon the
+    <var class="Fa">type</var>. The <var class="Fa">flags</var> field is ignored
+    for all types but <code class="Dv">DC_FIELD_GASMIX</code> and
+    <code class="Dv">DC_FIELD_TANK</code>.</p>
+<p class="Pp">The <var class="Fa">type</var> may be one of the following
+  values:</p>
+<dl class="Bl-tag">
+  <dt id="DC_FIELD_DIVETIME"><a class="permalink" href="#DC_FIELD_DIVETIME"><code class="Dv">DC_FIELD_DIVETIME</code></a></dt>
+  <dd>Time (duration) of dive in seconds. The <var class="Fa">value</var> must
+      be an <var class="Vt">unsigned int</var>.</dd>
+  <dt id="DC_FIELD_MAXDEPTH"><a class="permalink" href="#DC_FIELD_MAXDEPTH"><code class="Dv">DC_FIELD_MAXDEPTH</code></a></dt>
+  <dd>Maximum depth in metres. The <var class="Fa">value</var> must be a
+      <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_AVGDEPTH"><a class="permalink" href="#DC_FIELD_AVGDEPTH"><code class="Dv">DC_FIELD_AVGDEPTH</code></a></dt>
+  <dd>Average depth (over all samples) in metres. The
+      <var class="Fa">value</var> must be a <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_GASMIX_COUNT"><a class="permalink" href="#DC_FIELD_GASMIX_COUNT"><code class="Dv">DC_FIELD_GASMIX_COUNT</code></a></dt>
+  <dd>Number of different gas mixes used in this dive. The
+      <var class="Fa">value</var> must be a <var class="Vt">unsigned
+    int</var>.</dd>
+  <dt id="DC_FIELD_GASMIX"><a class="permalink" href="#DC_FIELD_GASMIX"><code class="Dv">DC_FIELD_GASMIX</code></a></dt>
+  <dd>Mixture for a particular gas. The <var class="Fa">value</var> must be a
+      <var class="Vt">dc_gasmix_t</var>, which has <var class="Vt">double</var>
+      fields for <var class="Va">oxygen</var>, <var class="Va">helium</var>, and
+      <var class="Va">nitrogen</var>. These are set to the unit fraction of gas
+      (not percentage). The <var class="Fa">flags</var> value is interpreted as
+      the gas mixture index, which must be less than the value of
+      <code class="Dv">DC_FIELD_GASMIX_COUNT</code>.</dd>
+  <dt id="DC_FIELD_SALINITY"><a class="permalink" href="#DC_FIELD_SALINITY"><code class="Dv">DC_FIELD_SALINITY</code></a></dt>
+  <dd>The water salinity as a <var class="Vt">dc_salinity_t</var> field, which
+      consists of a <var class="Va">type</var>,
+      <code class="Dv">DC_WATER_FRESH</code> or
+      <code class="Dv">DC_WATER_SALT</code>, and the salinity
+      <var class="Va">density</var>.</dd>
+  <dt id="DC_FIELD_ATMOSPHERIC"><a class="permalink" href="#DC_FIELD_ATMOSPHERIC"><code class="Dv">DC_FIELD_ATMOSPHERIC</code></a></dt>
+  <dd>Atmospheric pressure in bar. The <var class="Fa">value</var> field must be
+      a <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_TEMPERATURE_SURFACE"><a class="permalink" href="#DC_FIELD_TEMPERATURE_SURFACE"><code class="Dv">DC_FIELD_TEMPERATURE_SURFACE</code></a></dt>
+  <dd>Air temperature (at the surface) in Celsius. The
+      <var class="Fa">value</var> field must be a
+    <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_TEMPERATURE_MINIMUM"><a class="permalink" href="#DC_FIELD_TEMPERATURE_MINIMUM"><code class="Dv">DC_FIELD_TEMPERATURE_MINIMUM</code></a></dt>
+  <dd>Minimum water temperature surface in Celsius. The
+      <var class="Fa">value</var> field must be a
+    <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_TEMPERATURE_MAXIMUM"><a class="permalink" href="#DC_FIELD_TEMPERATURE_MAXIMUM"><code class="Dv">DC_FIELD_TEMPERATURE_MAXIMUM</code></a></dt>
+  <dd>Maximum water temperature in Celsius. The <var class="Fa">value</var>
+      field must be a <var class="Vt">double</var>.</dd>
+  <dt id="DC_FIELD_TANK_COUNT"><a class="permalink" href="#DC_FIELD_TANK_COUNT"><code class="Dv">DC_FIELD_TANK_COUNT</code></a></dt>
+  <dd>The number of tanks as an <var class="Vt">unsigned int</var>.</dd>
+  <dt id="DC_FIELD_TANK"><a class="permalink" href="#DC_FIELD_TANK"><code class="Dv">DC_FIELD_TANK</code></a></dt>
+  <dd>Tank configuration as a <var class="Vt">dc_tank_t</var>. This structure
+      consists of a <var class="Va">gasmix</var>, which may be retrieved with
+      <code class="Dv">DC_FIELD_GASMIX</code>; <var class="Va">type</var>, the
+      tank volume units as <code class="Dv">DC_TANKVOLUME_NONE</code>,
+      <code class="Dv">DC_TANKVOLUME_IMPERIAL</code>, or
+      <code class="Dv">DC_TANKVOLUME_METRIC</code>;
+      <var class="Va">volume</var>, the tank volume in litres or zero if the
+      tank is <code class="Dv">DC_TANKVOLUME_NONE</code>;
+      <var class="Va">workpressure</var>, the work pressure in bar or zero if
+      <code class="Dv">DC_TANKVOLUME_NONE</code> and maybe zero if
+      <code class="Dv">DC_TANKVOLUME_METRIC</code>;
+      <var class="Va">beginpressure</var> and <var class="Va">endpressure</var>
+      being the pressures at start and finish in bar. The
+      <var class="Fa">flags</var> value is the tank index.</dd>
+  <dt id="DC_FIELD_DIVEMODE"><a class="permalink" href="#DC_FIELD_DIVEMODE"><code class="Dv">DC_FIELD_DIVEMODE</code></a></dt>
+  <dd>Mode of the dive: <code class="Dv">DC_DIVEMODE_FREEDIVE</code> for
+      free-diving, <code class="Dv">DC_DIVEMODE_GAUGE</code> for gauge (i.e.,
+      running as a record and not computing, say, decompression events),
+      <code class="Dv">DC_DIVEMODE_OC</code> for standard open-circuit diving,
+      and <code class="Dv">DC_DIVEMODE_CCR</code> and
+      <code class="Dv">DC_DIVEMODE_SCR</code> for respectively closed circuit
+      and semi closed circuit &#x201C;rebreather&#x201D; diving.</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="RETURN_VALUES"><a class="permalink" href="#RETURN_VALUES">RETURN
+  VALUES</a></h1>
+<p class="Pp">Returns <code class="Dv">DC_STATUS_SUCCESS</code> if the field was
+    retrieved, <code class="Dv">DC_STATUS_UNSUPPORTED</code> if the field is not
+    supported by the device, or other error messages on further failure.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h1>
+<p class="Pp">The <span class="Lb">library
+    &#x201C;libdivecomputer&#x201D;</span> library was written by
+    <span class="An">Jef Driesen</span>,
+    <a class="Mt" href="mailto:jef@libdivecomputer.org">jef@libdivecomputer.org</a>.
+    The manpages were written by
+  <br/>
+  <span class="An">Kristaps Dzonsons</span>,
+    <a class="Mt" href="mailto:kristaps@bsd.lv">kristaps@bsd.lv</a>.</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">January 5, 2017</td>
+    <td class="foot-os">macOS 26.6</td>
+  </tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<!-- This is an automatically generated file.  Do not edit.
+   libdivecomputer
+  
+   Copyright (C) 2020 Vincent Hagen <vinnie@script4web.nl>
+  
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+  
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+  
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301 USA
+   -->
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="mandoc.css" type="text/css" media="all"/>
+  <title>DC_DESCRIPTOR_GET_TRANSPORTS(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">DC_DESCRIPTOR_GET_TRANSPORTS(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">DC_DESCRIPTOR_GET_TRANSPORTS(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp"><code class="Nm">dc_descriptor_get_transports</code> &#x2014;
+    <span class="Nd">Gets the transports supported by the given
+    descriptor.</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LIBRARY"><a class="permalink" href="#LIBRARY">LIBRARY</a></h1>
+<p class="Pp"><span class="Lb">library
+  &#x201C;libdivecomputer&#x201D;</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h1>
+<p class="Pp"><code class="In">#include
+    &lt;<a class="In">libdivecomputer/descriptor.h</a>&gt;</code></p>
+<p class="Pp"><var class="Ft">unsigned int</var>
+  <br/>
+  <code class="Fn">dc_descriptor_get_transports</code>(<var class="Fa">const
+    dc_descriptor_t *descriptor</var>);</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp">Gets the transports supported by the given
+    <var class="Fa">descriptor</var>. The <var class="Fa">descriptor</var>
+    usually found by searching through
+    <a class="Xr" href="dc_descriptor_iterator_new.3.html">dc_descriptor_iterator_new(3)</a>.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="RETURN_VALUES"><a class="permalink" href="#RETURN_VALUES">RETURN
+  VALUES</a></h1>
+<p class="Pp">Returns a union (bitwise OR) of the transports supported by the
+    given <var class="Fa">descriptor</var>.</p>
+<p class="Pp">The result is combination of
+    <code class="Dv">DC_TRANSPORT_USB</code>,
+    <code class="Dv">DC_TRANSPORT_USBHID</code>,
+    <code class="Dv">DC_TRANSPORT_BLE</code>,
+    <code class="Dv">DC_TRANSPORT_BLUETOOTH</code>,
+    <code class="Dv">DC_TRANSPORT_SERIAL</code>,
+    <code class="Dv">DC_TRANSPORT_IRDA</code></p>
+<p class="Pp">To determine if a specific transport is supported use the
+    following code</p>
+<div class="Bd Pp Bd-indent Li">
+<pre>unsigned int transports = dc_descriptor_get_transports(descriptor);
+if(transports &amp; DC_TRANSPORT_USBHID) {
+    // Device supports USB HID as transport
+}</pre>
+</div>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><a class="Xr" href="dc_descriptor_iterator_new.3.html">dc_descriptor_iterator_new(3)</a>.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h1>
+<p class="Pp">The <span class="Lb">library
+    &#x201C;libdivecomputer&#x201D;</span> library was written by
+    <span class="An">Jef Driesen</span>,
+    <a class="Mt" href="mailto:jef@libdivecomputer.org">jef@libdivecomputer.org</a>.
+  <br/>
+  This manpage is written by
+  <br/>
+  <span class="An">Vincent Hagen</span>,
+    <a class="Mt" href="mailto:vinnie@script4web.nl">vinnie@script4web.nl</a>.</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">June 5, 2020</td>
+    <td class="foot-os">macOS 26.6</td>
+  </tr>
+</table>
+</body>
+</html>

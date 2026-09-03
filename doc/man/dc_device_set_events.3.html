@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<!-- This is an automatically generated file.  Do not edit.
+   libdivecomputer
+  
+   Copyright (C) 2017 Kristaps Dzonsons <kristaps@bsd.lv>
+  
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+  
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+  
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301 USA
+   -->
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="mandoc.css" type="text/css" media="all"/>
+  <title>DC_DEVICE_SET_EVENTS(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">DC_DEVICE_SET_EVENTS(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">DC_DEVICE_SET_EVENTS(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp"><code class="Nm">dc_device_set_events</code> &#x2014;
+    <span class="Nd">set events logged during device interaction</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LIBRARY"><a class="permalink" href="#LIBRARY">LIBRARY</a></h1>
+<p class="Pp"><span class="Lb">library
+  &#x201C;libdivecomputer&#x201D;</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h1>
+<p class="Pp"><code class="In">#include
+    &lt;<a class="In">libdivecomputer/device.h</a>&gt;</code></p>
+<p class="Pp"><var class="Ft">typedef void</var>
+  <br/>
+  <code class="Fn">(*dc_event_callback_t)</code>(<var class="Fa">dc_device_t
+    *device</var>, <var class="Fa">dc_event_type_t event</var>,
+    <var class="Fa">const void *data</var>, <var class="Fa">void
+    *userdata</var>);</p>
+<p class="Pp"><var class="Ft">dc_status_t</var>
+  <br/>
+  <code class="Fn">dc_device_set_events</code>(<var class="Fa">dc_device_t
+    *device</var>, <var class="Fa">unsigned int events</var>,
+    <var class="Fa">dc_event_callback_t callback</var>, <var class="Fa">void
+    *userdata</var>);</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp">Register a series of event callbacks on a device opened with
+    <a class="Xr" href="dc_device_open.3.html">dc_device_open(3)</a>. Event
+    callbacks are informative messages during device processing passed to the
+    <var class="Fa">callback</var> function with an optional argument
+    <var class="Fa">userdata.</var></p>
+<p class="Pp">The <var class="Fa">events</var> value is a bit-field of events,
+    one of which is passed to the <var class="Fa">callback</var> as
+    <var class="Fa">event</var>. The <var class="Fa">data</var> field will be
+    cast to an event-specific type:</p>
+<dl class="Bl-tag">
+  <dt id="DC_EVENT_WAITING"><a class="permalink" href="#DC_EVENT_WAITING"><code class="Dv">DC_EVENT_WAITING</code></a></dt>
+  <dd>Indicate that the device is waiting for user input, such as activating the
+      data transfer mode on the device. No <var class="Fa">data</var> is
+    set.</dd>
+  <dt id="DC_EVENT_PROGRESS"><a class="permalink" href="#DC_EVENT_PROGRESS"><code class="Dv">DC_EVENT_PROGRESS</code></a></dt>
+  <dd>Progress metre of the parse. The <var class="Fa">data</var> variable is
+      set to a <var class="Vt">dc_event_progress_t</var>, with the
+      <var class="Va">current</var> and <var class="Va">maximum</var> progress
+      values from which one can compute a percentage.</dd>
+  <dt id="DC_EVENT_DEVINFO"><a class="permalink" href="#DC_EVENT_DEVINFO"><code class="Dv">DC_EVENT_DEVINFO</code></a></dt>
+  <dd>Sets the <var class="Fa">data</var> value to a
+      <var class="Vt">dc_event_devinfo_t</var>, which can be used to acquire the
+      <var class="Va">model</var>, <var class="Va">firmware</var>, and
+      <var class="Va">serial</var> numbers of the underlying device.</dd>
+  <dt id="DC_EVENT_CLOCK"><a class="permalink" href="#DC_EVENT_CLOCK"><code class="Dv">DC_EVENT_CLOCK</code></a></dt>
+  <dd>Report the system (local machine) and device time in epoch seconds. Fills
+      in <var class="Fa">data</var> as a <var class="Va">dc_event_clock_t</var>,
+      with <var class="Va">devtime</var> being the device and
+      <var class="Va">systime</var> being the system time. See
+      <a class="Xr" href="time.3.html">time(3)</a>.</dd>
+  <dt id="DC_EVENT_VENDOR"><a class="permalink" href="#DC_EVENT_VENDOR"><code class="Dv">DC_EVENT_VENDOR</code></a></dt>
+  <dd>A vendor-specific event filling <var class="Fa">data</var> as a
+      <var class="Va">dc_event_vendor_t</var>.</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="RETURN_VALUES"><a class="permalink" href="#RETURN_VALUES">RETURN
+  VALUES</a></h1>
+<p class="Pp">Returns <code class="Dv">DC_STATUS_SUCCESS</code> on success or
+    one of several error values on error.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><a class="Xr" href="dc_device_open.3.html">dc_device_open(3)</a></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h1>
+<p class="Pp">The <span class="Lb">library
+    &#x201C;libdivecomputer&#x201D;</span> library was written by
+    <span class="An">Jef Driesen</span>,
+    <a class="Mt" href="mailto:jef@libdivecomputer.org">jef@libdivecomputer.org</a>.
+    These manpages were written by
+  <br/>
+  <span class="An">Kristaps Dzonsons</span>,
+    <a class="Mt" href="mailto:kristaps@bsd.lv">kristaps@bsd.lv</a>.</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">January 5, 2017</td>
+    <td class="foot-os">macOS 26.6</td>
+  </tr>
+</table>
+</body>
+</html>

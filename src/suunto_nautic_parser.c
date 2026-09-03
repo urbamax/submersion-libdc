@@ -313,45 +313,76 @@ suunto_nautic_parse_summary (suunto_nautic_parser_t *parser, const unsigned char
 	}
 }
 
-// Map a Suunto dive-event (subgroup = chunk id, plus the subgroup's Type
-// enum) to the closest libdivecomputer sample-event type. Suunto's set is
-// richer than dc_sample_event_t, so unmapped subtypes fall back to a
-// generic marker; the raw subgroup+type is still available via the
-// descriptor for anyone needing the exact Suunto label.
+// Map a Suunto dive-event to the closest dc_sample_event_t. The sub-group
+// is the chunk id (0x18 Alarm / 0x19 Warning / 0x1A Notify / 0x1B State /
+// 0x1D Ooam) and Type indexes that sub-group's enum -- the full tables are
+// in the watch's descriptor library (see the Suunto Nautic protocol notes,
+// sec. 9.4), and every documented Type is handled here rather than only
+// the ones seen in a capture, so this holds for dives we have no export
+// for. Suunto's vocabulary is far wider than libdivecomputer's, so many
+// map to SAMPLE_EVENT_NONE (not emitted); the deco/gas state they mirror
+// is already on DC_SAMPLE_DECO / DC_SAMPLE_GASMIX, and event.value carries
+// the raw (sub-group<<8 | type) for a consumer that wants the exact label.
+//
+// The sub-group decides the fallback for an undocumented future Type:
+//   - Alarm  -> SAMPLE_EVENT_VIOLATION. Suunto "Alarms" are the hard
+//     red-alert class (deco/ceiling broken, PO2, depth, ...); a new one we
+//     don't recognise is still serious, so surface it rather than hide it.
+//   - Warning / Notify / State -> SAMPLE_EVENT_NONE. These are advisories
+//     and status transitions; fabricating an alarm for an unknown one is
+//     worse than dropping it (this is what made an ordinary no-deco dive
+//     show a "deco violation": Warning "NoDecoTime" and State "Ndl
+//     exceeded" fell through to VIOLATION / CEILING).
 static unsigned int
 suunto_nautic_map_event (unsigned int chunk_id, unsigned int type)
 {
 	switch (chunk_id) {
-	case CHUNK_EVENT_ALARM:
+	case CHUNK_EVENT_ALARM: // red alerts
 		switch (type) {
-		case 1: case 2: return SAMPLE_EVENT_PO2;                 // PO2 Low/High
+		case 1: case 2: return SAMPLE_EVENT_PO2;                 // PO2 Low / High
 		case 3:         return SAMPLE_EVENT_AIRTIME;             // Tank Pressure
+		case 4:         return SAMPLE_EVENT_AIRTIME;             // Gas Time
 		case 5:         return SAMPLE_EVENT_ASCENT;              // Ascent Speed
+		case 7: case 8: return SAMPLE_EVENT_OLF;                 // CNS 100% / OTU 300
 		case 10:        return SAMPLE_EVENT_CEILING;             // Deco Stop Broken
 		case 12:        return SAMPLE_EVENT_DEEPSTOP;            // Deep Stop Broken
 		case 13:        return SAMPLE_EVENT_SAFETYSTOP_MANDATORY;// Safety Stop Broken
+		case 31:        return SAMPLE_EVENT_MAXDEPTH;            // Depth
+		case 50:        return SAMPLE_EVENT_NONE;                // Battery
 		default:        return SAMPLE_EVENT_VIOLATION;
 		}
-	case CHUNK_EVENT_WARNING:
+	case CHUNK_EVENT_WARNING: // yellow advisories
 		switch (type) {
-		case 28:        return SAMPLE_EVENT_AIRTIME;             // User Tank Pressure
-		default:        return SAMPLE_EVENT_VIOLATION;
+		case 6:          return SAMPLE_EVENT_PO2;                // User PO2 High
+		case 14: case 15:return SAMPLE_EVENT_OLF;               // CNS 80% / OTU 250
+		case 28: case 29:return SAMPLE_EVENT_AIRTIME;           // User Tank Pressure / Gas Time
+		case 32:         return SAMPLE_EVENT_DIVETIME;          // Dive Time
+		default:         return SAMPLE_EVENT_NONE;              // 20 NoDecoTime, 30 Sidemount, 31 Depth,
+		                                                        // 42 User Ndl, 44 Recovery, 50 Battery
 		}
-	case CHUNK_EVENT_STATE:
+	case CHUNK_EVENT_STATE: // deco / stop transitions
 		switch (type) {
-		case 19:          return SAMPLE_EVENT_CEILING;           // Ndl exceeded
-		case 35: case 38: return SAMPLE_EVENT_DECOSTOP;          // At/Ahead Deco Stop
-		case 36: case 39: return SAMPLE_EVENT_DEEPSTOP;          // At/Ahead Deep Stop
-		case 37: case 40: return SAMPLE_EVENT_SAFETYSTOP;        // At/Ahead Safety Stop
-		default:          return SAMPLE_EVENT_BOOKMARK;
+		case 35:        return SAMPLE_EVENT_DECOSTOP;            // At Deco Stop (reached)
+		case 36:        return SAMPLE_EVENT_DEEPSTOP;            // At Deep Stop (reached)
+		case 37:        return SAMPLE_EVENT_SAFETYSTOP;          // At Safety Stop (reached)
+		default:        return SAMPLE_EVENT_NONE;                // 19 Ndl exceeded, 38/39/40 "... Ahead"
 		}
-	case CHUNK_EVENT_NOTIFY:
+	case CHUNK_EVENT_NOTIFY: // status notifications
 		switch (type) {
 		case 11:        return SAMPLE_EVENT_GASCHANGE;           // Gas Switch
-		default:        return SAMPLE_EVENT_BOOKMARK;
+		case 28: case 29:return SAMPLE_EVENT_AIRTIME;           // User Tank Pressure / Gas Time
+		case 32:        return SAMPLE_EVENT_DIVETIME;            // Dive Time
+		default:        return SAMPLE_EVENT_NONE;                // 21 Setpoint, 41 Stop done, 42 User Ndl,
+		                                                        // 60/61 Bearing, 62/63 Stopwatch, ...
+		}
+	case CHUNK_OOAM: // dive-end reason
+		switch (type) {
+		case 2:         return SAMPLE_EVENT_CEILING;             // Ceiling broken
+		case 4:         return SAMPLE_EVENT_MAXDEPTH;            // Max depth
+		default:        return SAMPLE_EVENT_NONE;                // 1 Battery, 3 SW crash, 5 Algo, 6 Gauge
 		}
 	default:
-		return SAMPLE_EVENT_BOOKMARK;
+		return SAMPLE_EVENT_NONE;
 	}
 }
 
@@ -642,14 +673,22 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 			// Consumers that want the exact Suunto label decode it from there;
 			// standard consumers use event.type as usual. (Gas switch keeps
 			// event.value as the gas number, per libdivecomputer convention.)
-			if (callback) {
-				dc_sample_value_t sample = {0};
-				sample.time = (unsigned int) time_ms;
-				callback (DC_SAMPLE_TIME, &sample, userdata);
-				sample.event.type = suunto_nautic_map_event (chunk.id, chunk.data[2]);
-				sample.event.flags = chunk.data[3] ? SAMPLE_FLAGS_BEGIN : SAMPLE_FLAGS_END;
-				sample.event.value = (chunk.id << 8) | chunk.data[2];
-				callback (DC_SAMPLE_EVENT, &sample, userdata);
+			// Emit the begin edge only (Active=1). Suunto toggles these as
+			// begin/end state pairs, but the end carries no diving-relevant
+			// information -- the Suunto app itself shows only the begins --
+			// and emitting both makes downstream apps draw a duplicate
+			// marker where the condition cleared.
+			if (callback && chunk.data[3]) {
+				unsigned int mapped = suunto_nautic_map_event (chunk.id, chunk.data[2]);
+				if (mapped != SAMPLE_EVENT_NONE) {
+					dc_sample_value_t sample = {0};
+					sample.time = (unsigned int) time_ms;
+					callback (DC_SAMPLE_TIME, &sample, userdata);
+					sample.event.type = mapped;
+					sample.event.flags = SAMPLE_FLAGS_BEGIN;
+					sample.event.value = (chunk.id << 8) | chunk.data[2];
+					callback (DC_SAMPLE_EVENT, &sample, userdata);
+				}
 			}
 		} else if (chunk.id == CHUNK_OOAM && chunk.size >= 3) {
 			// [timeDelta:2][Type:1]; one-shot dive-end reason (Ooam.Type: Out of
@@ -658,13 +697,16 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 			// native (subgroup, type) is passed in event.value = (chunk_id<<8|type)
 			// for the precise Suunto label, same convention as the other events.
 			if (callback) {
-				dc_sample_value_t sample = {0};
-				sample.time = (unsigned int) time_ms;
-				callback (DC_SAMPLE_TIME, &sample, userdata);
-				sample.event.type = suunto_nautic_map_event (chunk.id, chunk.data[2]);
-				sample.event.flags = SAMPLE_FLAGS_BEGIN;
-				sample.event.value = (chunk.id << 8) | chunk.data[2];
-				callback (DC_SAMPLE_EVENT, &sample, userdata);
+				unsigned int mapped = suunto_nautic_map_event (chunk.id, chunk.data[2]);
+				if (mapped != SAMPLE_EVENT_NONE) {
+					dc_sample_value_t sample = {0};
+					sample.time = (unsigned int) time_ms;
+					callback (DC_SAMPLE_TIME, &sample, userdata);
+					sample.event.type = mapped;
+					sample.event.flags = SAMPLE_FLAGS_BEGIN;
+					sample.event.value = (chunk.id << 8) | chunk.data[2];
+					callback (DC_SAMPLE_EVENT, &sample, userdata);
+				}
 			}
 		} else if (chunk.id == CHUNK_GAS_SWITCH && chunk.size >= 4) {
 			// [timeDelta:2][gasnumber:int16 LE].

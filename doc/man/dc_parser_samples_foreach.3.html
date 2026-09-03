@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<!-- This is an automatically generated file.  Do not edit.
+   libdivecomputer
+  
+   Copyright (C) 2017 Kristaps Dzonsons <kristaps@bsd.lv>
+  
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+  
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+  
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301 USA
+   -->
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="mandoc.css" type="text/css" media="all"/>
+  <title>DC_PARSER_SAMPLES_FOREACH(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">DC_PARSER_SAMPLES_FOREACH(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">DC_PARSER_SAMPLES_FOREACH(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp"><code class="Nm">dc_parser_samples_foreach</code> &#x2014;
+    <span class="Nd">iterate over samples taken during a dive</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LIBRARY"><a class="permalink" href="#LIBRARY">LIBRARY</a></h1>
+<p class="Pp"><span class="Lb">library
+  &#x201C;libdivecomputer&#x201D;</span></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h1>
+<p class="Pp"><code class="In">#include
+    &lt;<a class="In">libdivecomputer/parser.h</a>&gt;</code></p>
+<p class="Pp"><var class="Ft">typedef void</var>
+  <br/>
+  <code class="Fn">(*dc_sample_callback_t)</code>(<var class="Fa">dc_sample_type_t
+    type</var>, <var class="Fa">const dc_sample_value_t *value</var>,
+    <var class="Fa">void *userdata</var>);</p>
+<p class="Pp"><var class="Ft">dc_status_t</var>
+  <br/>
+  <code class="Fn">dc_parser_samples_foreach</code>(<var class="Fa">dc_parser_t
+    *parser</var>, <var class="Fa">dc_sample_callback_t callback</var>,
+    <var class="Fa">void *userdata</var>);</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp">Extract the samples taken during a dive as previously initialised
+    with <a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a>. Each
+    sample is passed to <var class="Fa">callback</var> with the
+    <var class="Fa">type</var> of the sample and its data
+    <var class="Fa">value</var>.</p>
+<p class="Pp">Samples are invoked as a sequence of sample sets. Each sequence
+    begins with a <code class="Dv">DC_SAMPLE_TIME</code>, then a number of
+    sample types in the set. When the next
+    <code class="Dv">DC_SAMPLE_TIME</code> is recorded, the sample set may be
+    closed and a new one reopened. After all samples have been rendered, the
+    last sample set should be closed.</p>
+<p class="Pp">The following sample types may be raised:</p>
+<dl class="Bl-tag">
+  <dt id="DC_SAMPLE_TIME"><a class="permalink" href="#DC_SAMPLE_TIME"><code class="Dv">DC_SAMPLE_TIME</code></a></dt>
+  <dd>The time of the sample taken in milliseconds after the dive began. Set in
+      the <var class="Fa">time</var> field.</dd>
+  <dt id="DC_SAMPLE_DEPTH"><a class="permalink" href="#DC_SAMPLE_DEPTH"><code class="Dv">DC_SAMPLE_DEPTH</code></a></dt>
+  <dd>The depth taken at the sample in metres. Set in the
+      <var class="Fa">depth</var> field.</dd>
+  <dt id="DC_SAMPLE_PRESSURE"><a class="permalink" href="#DC_SAMPLE_PRESSURE"><code class="Dv">DC_SAMPLE_PRESSURE</code></a></dt>
+  <dd>Tank pressure taken at the sample. Sets the <var class="Fa">tank</var>
+      index (see the <code class="Dv">DC_FIELD_TANK_COUNT</code> in
+      <a class="Xr" href="dc_parser_get_field.3.html">dc_parser_get_field(3)</a>)
+      and the <var class="Fa">pressure</var> in bar.</dd>
+  <dt id="DC_SAMPLE_TEMPERATURE"><a class="permalink" href="#DC_SAMPLE_TEMPERATURE"><code class="Dv">DC_SAMPLE_TEMPERATURE</code></a></dt>
+  <dd>Temperature in celsius. Sets the <var class="Fa">temperature</var>
+    field.</dd>
+  <dt id="DC_SAMPLE_EVENT"><a class="permalink" href="#DC_SAMPLE_EVENT"><code class="Dv">DC_SAMPLE_EVENT</code></a></dt>
+  <dd>An diving event raised by the computer. This may have the
+      <var class="Va">type</var> value of the <var class="Va">event</var>
+      structure set to <code class="Dv">SAMPLE_EVENT_NONE</code>,
+      <code class="Dv">SAMPLE_EVENT_DECOSTOP</code>,
+      <code class="Dv">SAMPLE_EVENT_RBT</code>,
+      <code class="Dv">SAMPLE_EVENT_ASCENT</code>,
+      <code class="Dv">SAMPLE_EVENT_CEILING</code>,
+      <code class="Dv">SAMPLE_EVENT_WORKLOAD</code>,
+      <code class="Dv">SAMPLE_EVENT_TRANSMITTER</code>,
+      <code class="Dv">SAMPLE_EVENT_VIOLATION</code>,
+      <code class="Dv">SAMPLE_EVENT_BOOKMARK</code>,
+      <code class="Dv">SAMPLE_EVENT_SURFACE</code>,
+      <code class="Dv">SAMPLE_EVENT_SAFETYSTOP</code>,
+      <code class="Dv">SAMPLE_EVENT_SAFETYSTOP_VOLUNTARY</code>,
+      <code class="Dv">SAMPLE_EVENT_SAFETYSTOP_MANDATORY</code>,
+      <code class="Dv">SAMPLE_EVENT_DEEPSTOP</code>,
+      <code class="Dv">SAMPLE_EVENT_CEILING_SAFETYSTOP</code>,
+      <code class="Dv">SAMPLE_EVENT_FLOOR</code>,
+      <code class="Dv">SAMPLE_EVENT_DIVETIME</code>,
+      <code class="Dv">SAMPLE_EVENT_MAXDEPTH</code>,
+      <code class="Dv">SAMPLE_EVENT_OLF</code>,
+      <code class="Dv">SAMPLE_EVENT_PO2</code>,
+      <code class="Dv">SAMPLE_EVENT_AIRTIME</code>,
+      <code class="Dv">SAMPLE_EVENT_RGBM</code>, or
+      <code class="Dv">SAMPLE_EVENT_TISSUELEVEL</code>.</dd>
+  <dt id="DC_SAMPLE_RBT"><a class="permalink" href="#DC_SAMPLE_RBT"><code class="Dv">DC_SAMPLE_RBT</code></a></dt>
+  <dd>The remaining bottom time in seconds. Sets the <var class="Fa">rbt</var>
+      field.</dd>
+  <dt id="DC_SAMPLE_HEARTBEAT"><a class="permalink" href="#DC_SAMPLE_HEARTBEAT"><code class="Dv">DC_SAMPLE_HEARTBEAT</code></a></dt>
+  <dd>The diver's heartbeat in beats per minute. Sets the
+      <var class="Fa">heartbeat</var> field.</dd>
+  <dt id="DC_SAMPLE_BEARING"><a class="permalink" href="#DC_SAMPLE_BEARING"><code class="Dv">DC_SAMPLE_BEARING</code></a></dt>
+  <dd>The diver's bearing in degrees. Sets the <var class="Fa">bearing</var>
+      field.</dd>
+  <dt id="DC_SAMPLE_VENDOR"><a class="permalink" href="#DC_SAMPLE_VENDOR"><code class="Dv">DC_SAMPLE_VENDOR</code></a></dt>
+  <dd>A vendor-specific data field.</dd>
+  <dt id="DC_SAMPLE_SETPOINT"><a class="permalink" href="#DC_SAMPLE_SETPOINT"><code class="Dv">DC_SAMPLE_SETPOINT</code></a></dt>
+  <dd>The closed-circuit setpoint (PO2) has changed. Sets the
+      <var class="Fa">setpoint</var> value in bar.</dd>
+  <dt id="DC_SAMPLE_PPO2"><a class="permalink" href="#DC_SAMPLE_PPO2"><code class="Dv">DC_SAMPLE_PPO2</code></a></dt>
+  <dd>The partial pressure of oxygen has changed (in bar). Sets the
+      <var class="Fa">ppo2</var> field.</dd>
+  <dt id="DC_SAMPLE_CNS"><a class="permalink" href="#DC_SAMPLE_CNS"><code class="Dv">DC_SAMPLE_CNS</code></a></dt>
+  <dd>The CNS (central nervous system oxygen toxicity) value as a unit fraction.
+      Sets the <var class="Fa">cns</var> value.</dd>
+  <dt id="DC_SAMPLE_DECO"><a class="permalink" href="#DC_SAMPLE_DECO"><code class="Dv">DC_SAMPLE_DECO</code></a></dt>
+  <dd>Decompression phase of <var class="Fa">type</var>
+      <code class="Dv">DC_DECO_NDL</code> (no decompression limit),
+      <code class="Dv">DC_DECO_SAFETYSTOP</code> (the safety stop),
+      <code class="Dv">DC_DECO_DECOSTOP</code> (a decompression stop), or
+      <code class="Dv">DC_DECO_DEEPSTOP</code> (a mandatory or suggested
+      deep-stop). Also sets the <var class="Fa">depth</var> in metres and the
+      <var class="Fa">time</var> in seconds.</dd>
+  <dt id="DC_SAMPLE_GASMIX"><a class="permalink" href="#DC_SAMPLE_GASMIX"><code class="Dv">DC_SAMPLE_GASMIX</code></a></dt>
+  <dd>Switch to a given gas mix index (see the
+      <code class="Dv">DC_FIELD_GASMIX_COUNT</code> in
+      <a class="Xr" href="dc_parser_get_field.3.html">dc_parser_get_field(3)</a>).
+      Sets the <var class="Fa">gasmix</var> field.</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="RETURN_VALUES"><a class="permalink" href="#RETURN_VALUES">RETURN
+  VALUES</a></h1>
+<p class="Pp">Returns <code class="Dv">DC_STATUS_OK</code> on success and
+    another code on failure.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><a class="Xr" href="dc_parser_new.3.html">dc_parser_new(3)</a></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h1>
+<p class="Pp">The <span class="Lb">library
+    &#x201C;libdivecomputer&#x201D;</span> library was written by
+    <span class="An">Jef Driesen</span>,
+    <a class="Mt" href="mailto:jef@libdivecomputer.org">jef@libdivecomputer.org</a>.
+    The manpages were written by
+  <br/>
+  <span class="An">Kristaps Dzonsons</span>,
+    <a class="Mt" href="mailto:kristaps@bsd.lv">kristaps@bsd.lv</a>.</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">January 5, 2017</td>
+    <td class="foot-os">macOS 26.6</td>
+  </tr>
+</table>
+</body>
+</html>

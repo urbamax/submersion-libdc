@@ -122,6 +122,11 @@
 #define SUMMARY_GF_LOW   0x35 // uint16 LE, %
 #define SUMMARY_GF_HIGH  0x33 // uint16 LE, %
 #define SUMMARY_GAS_BASE 0xC7 // first gas; 4 bytes each: id, O2%, He%, type
+#define SUMMARY_PPO2_MAX  0xCC // float32 LE, bar -- the configured PO2 limit
+#define SUMMARY_TANK_VOL  0xD0 // float32 LE, m^3 -- cylinder water capacity
+// Both cross-checked over 17 dives from 6 testers: +0xCC is 1.4 or 1.6
+// (the PO2-max setting); +0xD0 is the tank size in m^3 -- 0.0111 on an AL80,
+// 0.010/0.012 on the steel 10 L / 12 L people logged, matching what they own.
 
 typedef struct suunto_nautic_tank_t {
 	unsigned int used;
@@ -151,6 +156,8 @@ typedef struct suunto_nautic_parser_t {
 	dc_gasmix_t gasmix[MAX_GASMIXES];
 	unsigned int have_decomodel;
 	dc_decomodel_t decomodel;
+	unsigned int have_tankvolume;
+	double tankvolume; // litres, from /Summary +0xD0
 } suunto_nautic_parser_t;
 
 typedef struct sbem_chunk_t {
@@ -279,11 +286,11 @@ suunto_nautic_find_summary (const unsigned char *data, size_t size)
 	return size;
 }
 
-// Parse gradient factors and gas mixes from the /Summary section, whose
-// "SBEM0103" signature is at `sbem` (length `size`). Offsets are relative
-// to that signature (confirmed on real hardware). Gases are validated by
-// plausibility (O2 in 1..100, He in 0..100-O2) and counted until the first
-// implausible slot, since unused slots hold unrelated bytes.
+// Parse gradient factors, gas mixes and the cylinder size from the /Summary
+// section, whose "SBEM0103" signature is at `sbem` (length `size`). Offsets
+// are relative to that signature (confirmed on real hardware). Gases are
+// validated by plausibility (O2 in 1..100, He in 0..100-O2) and counted
+// until the first implausible slot, since unused slots hold unrelated bytes.
 static void
 suunto_nautic_parse_summary (suunto_nautic_parser_t *parser, const unsigned char *sbem, size_t size)
 {
@@ -295,6 +302,14 @@ suunto_nautic_parse_summary (suunto_nautic_parser_t *parser, const unsigned char
 		parser->decomodel.params.gf.low = low;
 		parser->decomodel.params.gf.high = high;
 		parser->have_decomodel = 1;
+	}
+
+	if (size >= SUMMARY_TANK_VOL + 4) {
+		double m3 = array_float_le (sbem + SUMMARY_TANK_VOL);
+		if (m3 > 0.0005 && m3 < 0.05) { // 0.5 .. 50 L
+			parser->tankvolume = m3 * 1000.0; // m^3 -> litres
+			parser->have_tankvolume = 1;
+		}
 	}
 
 	for (unsigned int i = 0; i < MAX_GASMIXES; i++) {
@@ -809,9 +824,12 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 	parser->atmospheric = atmospheric;
 	parser->have_datetime = have_datetime;
 
-	// Gradient factors and gas mixes from the appended /Summary section.
+	// Gradient factors, gas mixes and cylinder size from the appended
+	// /Summary section.
 	parser->ngasmixes = 0;
 	parser->have_decomodel = 0;
+	parser->have_tankvolume = 0;
+	parser->tankvolume = 0.0;
 	memset (parser->gasmix, 0, sizeof (parser->gasmix));
 	memset (&parser->decomodel, 0, sizeof (parser->decomodel));
 	if (profile_size < abstract->size) {
@@ -890,8 +908,15 @@ suunto_nautic_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, uns
 	case DC_FIELD_TANK:
 		if (flags >= MAX_TANKS || !parser->tank[flags].used)
 			return DC_STATUS_INVALIDARGS;
-		tank->type = DC_TANKVOLUME_NONE;
-		tank->volume = 0.0;
+		// The /Summary carries one cylinder water capacity (the watch has a
+		// single tank-size setting), so it applies to every transmitter.
+		if (parser->have_tankvolume) {
+			tank->type = DC_TANKVOLUME_METRIC;
+			tank->volume = parser->tankvolume;
+		} else {
+			tank->type = DC_TANKVOLUME_NONE;
+			tank->volume = 0.0;
+		}
 		tank->workpressure = 0.0;
 		tank->beginpressure = parser->tank[flags].beginpressure;
 		tank->endpressure = parser->tank[flags].endpressure;

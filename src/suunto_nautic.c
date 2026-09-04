@@ -954,6 +954,115 @@ suunto_nautic_extract_entry_ids (const unsigned char *data, size_t size,
 	return count;
 }
 
+// True for a token that is exactly "<digits>.<digits>.<digits>", each part
+// < 256; on success fills a/b/c.
+static int
+suunto_nautic_parse_version (const char *tok, size_t len, unsigned int *a, unsigned int *b, unsigned int *c)
+{
+	unsigned int part[3] = {0}, idx = 0, digits = 0;
+	for (size_t i = 0; i < len; i++) {
+		char ch = tok[i];
+		if (ch >= '0' && ch <= '9') {
+			part[idx] = part[idx] * 10 + (unsigned int) (ch - '0');
+			if (part[idx] > 255 || ++digits > 3)
+				return 0;
+		} else if (ch == '.') {
+			if (digits == 0 || ++idx > 2)
+				return 0;
+			digits = 0;
+		} else {
+			return 0;
+		}
+	}
+	if (idx != 2 || digits == 0)
+		return 0;
+	*a = part[0]; *b = part[1]; *c = part[2];
+	return 1;
+}
+
+// True for a token that is exactly 12 chars, all [0-9A-F] -- the watch serial
+// form, e.g. "2604C3003306".
+static int
+suunto_nautic_is_serial (const char *tok, size_t len)
+{
+	if (len != 12)
+		return 0;
+	for (size_t i = 0; i < len; i++) {
+		char ch = tok[i];
+		if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F')))
+			return 0;
+	}
+	return 1;
+}
+
+/*
+ * Best-effort device info. A short fetch of /Info returns a device-identity
+ * record: a run of NUL-separated strings mixed in with binary framing bytes,
+ *
+ *   Suunto\0 Nautic\0 Vaasa\0 T\0 2604C3003306\0 01385D42<hwpart><...>\0
+ *     2.55.46\0 <hwpart>\0 ... SIM\0 <mac>\0 BID\0 <build>\0
+ *     BLE Mac Address\0 <mac>\0 WiFi Mac Address\0 <mac>\0
+ *
+ * (confirmed on a live Nautic, firmware 2.55.46, via fetch_device_info.py).
+ * The watch serial is the first 12-char uppercase-hex token and the firmware
+ * the first "N.N.N" token; the serial always precedes the firmware, and the
+ * BLE/WiFi MACs (also 12 hex) come after it -- so stop looking for a serial
+ * once the firmware token is seen. Layered on top of the download; every
+ * failure path here is non-fatal.
+ *
+ * dc_event_devinfo_t carries unsigned ints only: the firmware is packed
+ * (a << 16) | (b << 8) | c and the hex serial truncated to its low 32 bits.
+ * A consumer wanting the faithful strings should read the BLE advertised
+ * name (serial) or GET /Info directly (firmware).
+ */
+static void
+suunto_nautic_emit_devinfo (dc_device_t *abstract)
+{
+	dc_buffer_t *info = dc_buffer_new (0);
+	if (info == NULL)
+		return;
+
+	if (suunto_nautic_device_short_fetch (abstract, "/Info", info) != DC_STATUS_SUCCESS) {
+		dc_buffer_free (info);
+		return; // not fatal -- just no device info this time
+	}
+
+	const unsigned char *d = dc_buffer_get_data (info);
+	size_t n = dc_buffer_get_size (info);
+
+	dc_event_devinfo_t devinfo;
+	memset (&devinfo, 0, sizeof (devinfo));
+
+	// Walk NUL-delimited tokens; the record's strings are NUL-terminated, and
+	// the binary framing bytes between them fail both tests.
+	size_t start = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (d[i] != 0)
+			continue;
+		const char *tok = (const char *) (d + start);
+		size_t toklen = i - start;
+		unsigned int a, b, c;
+		if (!devinfo.firmware && suunto_nautic_parse_version (tok, toklen, &a, &b, &c))
+			devinfo.firmware = (a << 16) | (b << 8) | c;
+		else if (!devinfo.firmware && !devinfo.serial && suunto_nautic_is_serial (tok, toklen)) {
+			char buf[13];
+			memcpy (buf, tok, 12);
+			buf[12] = 0;
+			devinfo.serial = (unsigned int) strtoul (buf, NULL, 16);
+		}
+		start = i + 1;
+	}
+
+	dc_buffer_free (info);
+
+	if (devinfo.firmware || devinfo.serial) {
+		INFO (abstract->context, "Device info: firmware=%u.%u.%u serial=0x%08x",
+			(devinfo.firmware >> 16) & 0xFF, (devinfo.firmware >> 8) & 0xFF,
+			devinfo.firmware & 0xFF, devinfo.serial);
+		device_event_emit (abstract, DC_EVENT_DEVINFO, &devinfo);
+	}
+}
+
 static dc_status_t
 suunto_nautic_device_foreach (dc_device_t *abstract, dc_dive_callback_t callback, void *userdata)
 {
@@ -983,6 +1092,9 @@ suunto_nautic_device_foreach (dc_device_t *abstract, dc_dive_callback_t callback
 	vendor.size = (unsigned int) dc_buffer_get_size (mode);
 	device_event_emit (abstract, DC_EVENT_VENDOR, &vendor);
 	dc_buffer_free (mode);
+
+	// Best-effort firmware / serial via DC_EVENT_DEVINFO; never fatal.
+	suunto_nautic_emit_devinfo (abstract);
 
 	progress.current = 1;
 	device_event_emit (abstract, DC_EVENT_PROGRESS, &progress);

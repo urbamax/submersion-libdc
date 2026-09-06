@@ -601,13 +601,22 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 							// Cylinder slot index == GasNumber, so this tank
 							// breathes gas i (linked to gasmix[i] below).
 							tank[ntanks].gasmix = i;
-							// Begin from the first observed reading (the deferred one for Pressure2).
+							// Seed begin from the first observed reading (the deferred
+							// one for Pressure2); refined to the max below.
 							tank[ntanks].beginpressure = (field == 1 && p2_first[i] >= 0)
 								? p2_first[i] / 100000.0 : bar;
 							ntanks++;
 						}
 						unsigned int t = (unsigned int) tankmap[key];
 						tank[t].endpressure = bar;
+						// Begin pressure = the highest reading seen: a cylinder only
+						// loses pressure during a dive, so the max is the true start.
+						// This ignores an initial dropout where a transmitter that
+						// hasn't paired yet reports a spurious low value (e.g. ~9 bar
+						// for the first minutes, then jumps to the real ~200 bar --
+						// nandodiver's dual-transmitter dives, issue #29/#34).
+						if (bar > tank[t].beginpressure)
+							tank[t].beginpressure = bar;
 						if (callback) {
 							dc_sample_value_t sample = {0};
 							sample.time = (unsigned int) time_ms;

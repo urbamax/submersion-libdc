@@ -597,6 +597,36 @@ suunto_nautic_device_stream_fetch (dc_device_t *abstract, const char *path, dc_b
 	return DC_STATUS_SUCCESS;
 }
 
+// A well-formed RPC frame from the watch starts with the 0xA5 magic and is long
+// enough to carry an opcode. Anything shorter is line noise or a truncated read.
+static int
+suunto_nautic_frame_wellformed (const unsigned char *packet, size_t len)
+{
+	return len >= 2 && packet[0] == 0xA5;
+}
+
+// The DATA (0x05) frame a fetch is waiting for: our opcode, carrying the 3-byte
+// session handle this fetch was issued against.
+static int
+suunto_nautic_frame_is_our_data (const unsigned char *packet, size_t len, const unsigned char handle[3])
+{
+	return len >= RPC_HANDLE_OFFSET + 3 &&
+		packet[0] == 0xA5 && packet[1] == RPC_OP_DATA &&
+		memcmp (packet + RPC_HANDLE_OFFSET, handle, 3) == 0;
+}
+
+// A single BLE link is shared: another client (most often the official Suunto
+// app holding a live logbook subscription) can flood it with its own frames --
+// notably Whiteboard 0x07 subscribe-result traffic on a different handle. Those
+// are well-formed frames that just aren't ours, so skip them freely rather than
+// treating them as a data error. This cap only guards against an unbounded loop;
+// in practice the read below times out first (a clean DC_STATUS_TIMEOUT) when
+// our DATA frame never gets a turn on the contended link.
+#define MAX_FOREIGN_SKIPS 256
+// A tight cap on genuinely malformed/truncated frames: those do signal a real
+// data-format problem, so give up quickly with DC_STATUS_DATAFORMAT.
+#define MAX_MALFORMED_SKIPS 8
+
 // Fetch a resource the watch paginates (e.g. /Logbook/byId/<id>/Summary):
 // GET -> ACK(handle) -> repeated ranged 0x0D fetch, looping while the page
 // status is 100 (more pages) until 200 (last page), stripping the 10-byte
@@ -652,29 +682,40 @@ suunto_nautic_device_paginated_fetch (dc_device_t *abstract, const char *path, d
 
 		// Read the page, skipping unsolicited/interleaved frames: the watch
 		// multiplexes other resources (device info, analytics, a re-sent Hello)
-		// on the same link, so accept only a DATA (0x05) frame whose handle
-		// matches this fetch. Otherwise we'd splice a foreign frame into the
-		// paginated stream.
+		// on the same link, and another client (the Suunto app's logbook
+		// subscription) can flood it with foreign frames. Accept only a DATA
+		// (0x05) frame whose handle matches this fetch; skip anything else so a
+		// foreign frame isn't spliced into the paginated stream.
 		unsigned char packet[MAX_PACKET] = {0};
 		size_t len = 0;
-		unsigned int skips = 0;
-		const unsigned int max_skips = 8;
+		unsigned int foreign_skips = 0;
+		unsigned int malformed_skips = 0;
 		for (;;) {
 			status = dc_iostream_read (device->iostream, packet, sizeof (packet), &len);
 			if (status != DC_STATUS_SUCCESS) {
+				// A contended link (another client holding a subscription) means
+				// our DATA never gets a turn and this read times out. Surface it
+				// as-is (DC_STATUS_TIMEOUT) rather than a misleading DATAFORMAT.
 				ERROR (abstract->context, "Failed to receive page %u for %s.", page, path);
 				return status;
 			}
 			HEXDUMP (abstract->context, DC_LOGLEVEL_DEBUG, "PFETCH RSP", packet, len);
-			if (len >= RPC_HANDLE_OFFSET + 3 && packet[0] == 0xA5 && packet[1] == RPC_OP_DATA &&
-					memcmp (packet + RPC_HANDLE_OFFSET, handle, sizeof (handle)) == 0)
+			if (suunto_nautic_frame_is_our_data (packet, len, handle))
 				break;
-			if (++skips >= max_skips) {
-				ERROR (abstract->context, "Unexpected frame for %s page %u (" DC_PRINTF_SIZE " bytes).", path, page, len);
+			if (suunto_nautic_frame_wellformed (packet, len)) {
+				if (++foreign_skips >= MAX_FOREIGN_SKIPS) {
+					ERROR (abstract->context, "Link saturated by another client while paging %s; giving up.", path);
+					return DC_STATUS_TIMEOUT;
+				}
+				WARNING (abstract->context, "Skipping frame from another client while paging %s (op 0x%02x).",
+					path, packet[1]);
+				continue;
+			}
+			if (++malformed_skips >= MAX_MALFORMED_SKIPS) {
+				ERROR (abstract->context, "Too many malformed frames for %s page %u (" DC_PRINTF_SIZE " bytes).", path, page, len);
 				return DC_STATUS_DATAFORMAT;
 			}
-			WARNING (abstract->context, "Skipping interleaved frame while paging %s (op 0x%02x).",
-				path, len >= 2 ? packet[1] : 0);
+			WARNING (abstract->context, "Skipping malformed frame while paging %s (" DC_PRINTF_SIZE " bytes).", path, len);
 		}
 
 		unsigned int frame_status = array_uint16_le (packet + RPC_STATUS_OFFSET);
@@ -762,11 +803,14 @@ suunto_nautic_short_fetch_frame (dc_device_t *abstract, const char *path, dc_buf
 	// diagnostic passes 0 and returns the very first frame, whatever it is.
 	unsigned char packet[MAX_PACKET] = {0};
 	size_t len = 0;
-	unsigned int attempts = 0;
-	const unsigned int max_attempts = 8;
-	do {
+	unsigned int foreign_skips = 0;
+	unsigned int malformed_skips = 0;
+	for (;;) {
 		status = dc_iostream_read (device->iostream, packet, sizeof (packet), &len);
 		if (status != DC_STATUS_SUCCESS) {
+			// A contended link (another client holding a subscription) means our
+			// DATA never gets a turn and this read times out. Surface it as-is
+			// (DC_STATUS_TIMEOUT) rather than a misleading DATAFORMAT.
 			ERROR (abstract->context, "Failed to receive the data for %s.", path);
 			return status;
 		}
@@ -774,18 +818,29 @@ suunto_nautic_short_fetch_frame (dc_device_t *abstract, const char *path, dc_buf
 		if (!skip_non_data)
 			break;
 		// Accept only a DATA (0x05) frame whose 3-byte handle matches the one
-		// this fetch was issued against. The watch interleaves unsolicited
-		// frames (a re-sent Hello, or an analytics/event stream on a different
-		// handle), and a blind read would grab those -- surfacing as an
-		// intermittent DC_STATUS_DATAFORMAT or, worse, the wrong resource's
-		// bytes. Skip anything that isn't our DATA frame and read again.
-		if (len >= RPC_HANDLE_OFFSET + 3 && packet[0] == 0xA5 && packet[1] == RPC_OP_DATA &&
-				memcmp (packet + RPC_HANDLE_OFFSET, handle, sizeof (handle)) == 0)
+		// this fetch was issued against. The watch interleaves unsolicited frames
+		// (a re-sent Hello, an analytics/event stream), and another client (the
+		// Suunto app's logbook subscription: 0x07 subscribe-result traffic on a
+		// different handle) can flood the shared link. A blind read would grab
+		// those -- surfacing as an intermittent DC_STATUS_DATAFORMAT or, worse,
+		// the wrong resource's bytes. Skip anything that isn't our DATA frame.
+		if (suunto_nautic_frame_is_our_data (packet, len, handle))
 			break;
-		WARNING (abstract->context, "Skipping unexpected frame while fetching %s (op 0x%02x handle %s).",
-			path, len >= 2 ? packet[1] : 0,
-			len >= RPC_HANDLE_OFFSET + 3 ? "mismatch" : "short");
-	} while (++attempts < max_attempts);
+		if (suunto_nautic_frame_wellformed (packet, len)) {
+			if (++foreign_skips >= MAX_FOREIGN_SKIPS) {
+				ERROR (abstract->context, "Link saturated by another client while fetching %s; giving up.", path);
+				return DC_STATUS_TIMEOUT;
+			}
+			WARNING (abstract->context, "Skipping frame from another client while fetching %s (op 0x%02x).",
+				path, packet[1]);
+			continue;
+		}
+		if (++malformed_skips >= MAX_MALFORMED_SKIPS) {
+			ERROR (abstract->context, "Too many malformed frames while fetching %s (" DC_PRINTF_SIZE " bytes).", path, len);
+			return DC_STATUS_DATAFORMAT;
+		}
+		WARNING (abstract->context, "Skipping malformed frame while fetching %s (" DC_PRINTF_SIZE " bytes).", path, len);
+	}
 
 	dc_buffer_clear (frame);
 	if (!dc_buffer_append (frame, packet, len)) {

@@ -278,6 +278,7 @@ halcyon_symbios_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, u
 			tank->endpressure   = parser->tank[flags].endpressure   / 10.0;
 			tank->gasmix        = parser->tank[flags].gasmix;
 			tank->usage         = parser->tank[flags].usage;
+			tank->serial        = parser->tank[flags].id;
 			break;
 		case DC_FIELD_DECOMODEL:
 			if (parser->gf_lo == UNDEFINED || parser->gf_hi == UNDEFINED)

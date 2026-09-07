@@ -405,10 +405,13 @@ suunto_nautic_map_event (unsigned int chunk_id, unsigned int type)
 		}
 	case CHUNK_EVENT_NOTIFY: // status notifications
 		switch (type) {
-		case 11:        return SAMPLE_EVENT_GASCHANGE;           // Gas Switch
 		case 28: case 29:return SAMPLE_EVENT_AIRTIME;           // User Tank Pressure / Gas Time
-		case 32:        return SAMPLE_EVENT_DIVETIME;            // Dive Time
-		default:        return SAMPLE_EVENT_NONE;                // 21 Setpoint, 41 Stop done, 42 User Ndl,
+		case 32:        return SAMPLE_EVENT_DIVETIME;           // Dive Time
+		default:        return SAMPLE_EVENT_NONE;               // 11 Gas Switch (a "switch gas?" prompt
+		                                                        // the diver can ignore, not a mix change:
+		                                                        // the real switch comes through
+		                                                        // CHUNK_GAS_SWITCH with the gas number),
+		                                                        // 21 Setpoint, 41 Stop done, 42 User Ndl,
 		                                                        // 60/61 Bearing, 62/63 Stopwatch, ...
 		}
 	case CHUNK_OOAM: // dive-end reason

@@ -77,6 +77,11 @@
 // Safety cap on paginated-fetch pages (a Summary is a handful of pages).
 #define MAX_PAGES 64
 
+// How many times to (re)issue a dive's stream fetch. The watch can refuse the
+// first attempt with status 423 (Locked) right after the previous dive; a short
+// backoff between attempts clears it.
+#define SUUNTO_NAUTIC_DOWNLOAD_RETRIES 4
+
 // The Suunto "MDS" chunk header wrapping each compressed block: 28 bytes,
 // with the true payload size as a u16 LE at offset 20 and the compressed
 // payload starting at offset 28.
@@ -575,6 +580,22 @@ suunto_nautic_device_stream_fetch (dc_device_t *abstract, const char *path, dc_b
 		if (len >= 2 && packet[0] == 0xA5 && packet[1] == 0x09)
 			break;
 
+		// The watch can refuse the stream with a short status frame (op 0x08)
+		// instead of streaming MDS chunks -- notably HTTP-style status 423
+		// (Locked) when this dive's GET lands before the previous dive's stream
+		// session has been torn down (back-to-back downloads share one BLE
+		// link). A status-200 op 0x08 is the normal stream-start ack and is
+		// ignored here; a non-200 one is surfaced so the caller can back off
+		// and retry rather than silently collecting nothing and reporting the
+		// dive as empty/aborted.
+		if (len >= RPC_STATUS_OFFSET + 2 && packet[0] == 0xA5 && packet[1] == 0x08) {
+			unsigned int frame_status = array_uint16_le (packet + RPC_STATUS_OFFSET);
+			if (frame_status != RPC_STATUS_OK) {
+				ERROR (abstract->context, "Watch refused the stream for %s (status %u).", path, frame_status);
+				return DC_STATUS_PROTOCOL;
+			}
+		}
+
 		if (len >= 2 && packet[0] == 0xA5 && packet[1] == 0x01) {
 			if (len < MDS_HEADER_SIZE) {
 				WARNING (abstract->context, "MDS chunk shorter than the header (" DC_PRINTF_SIZE ").", len);
@@ -920,6 +941,7 @@ suunto_nautic_device_download (dc_device_t *abstract, const char *logbook_id, dc
 	if (abstract == NULL || abstract->vtable->type != DC_FAMILY_SUUNTO_NAUTIC || logbook_id == NULL || raw == NULL)
 		return DC_STATUS_INVALIDARGS;
 
+	suunto_nautic_device_t *device = (suunto_nautic_device_t *) abstract;
 	dc_status_t status = DC_STATUS_SUCCESS;
 
 	char path[128];
@@ -931,7 +953,22 @@ suunto_nautic_device_download (dc_device_t *abstract, const char *logbook_id, dc
 	if (compressed == NULL)
 		return DC_STATUS_NOMEMORY;
 
-	status = suunto_nautic_device_stream_fetch (abstract, path, compressed);
+	// The watch can transiently refuse a dive's stream (status 423 Locked, or
+	// just silence) when the GET is issued right after the previous dive on the
+	// same BLE link. Human-paced tools never hit this; a batch foreach does.
+	// Back off and retry a few times before giving up on the dive.
+	for (unsigned int attempt = 0; attempt < SUUNTO_NAUTIC_DOWNLOAD_RETRIES; attempt++) {
+		if (attempt > 0) {
+			WARNING (abstract->context, "Retrying the download of %s (attempt %u/%u).",
+				logbook_id, attempt + 1, SUUNTO_NAUTIC_DOWNLOAD_RETRIES);
+			dc_iostream_sleep (device->iostream, 1500 * attempt);
+		}
+		dc_buffer_clear (compressed);
+		status = suunto_nautic_device_stream_fetch (abstract, path, compressed);
+		if (status == DC_STATUS_SUCCESS && dc_buffer_get_size (compressed) > 0)
+			break;
+		status = DC_STATUS_PROTOCOL;
+	}
 	if (status != DC_STATUS_SUCCESS) {
 		dc_buffer_free (compressed);
 		return status;

@@ -29,15 +29,19 @@
  *   immediately, before the value.
  *
  * Decoded chunks: 0x12 (1Hz absolute pressure / temperature), 0x16
- * (depth, cylinder pressures, NDL, time-to-surface), 0x17 (surface
- * pressure), 0x0B (GPS), plus the dynamically-assigned dive-event
- * subgroups. Chunks 0x08 (activity), 0x0E (satellite info) and 0x14
- * (battery) have fixed lengths that are used for resync (see
- * suunto_nautic_sbem_fixed_length) but map to no dc_field/dc_sample and
- * are not otherwise decoded. Chunks 0x23/0x24 are raw accelerometer /
+ * (depth, cylinder pressures, gas time remaining, NDL, time-to-surface),
+ * 0x17 (surface pressure), 0x0B (GPS), 0x08 (activity -> dive mode), plus
+ * the dynamically-assigned dive-event subgroups. Chunks 0x0E (satellite
+ * info) and 0x14 (battery) have fixed lengths that are used for resync
+ * (see suunto_nautic_sbem_fixed_length) but map to no dc_field/dc_sample
+ * and are not otherwise decoded. Chunks 0x23/0x24 are raw accelerometer /
  * gyroscope dumps for client-side dead reckoning, emitted through
  * DC_SAMPLE_VENDOR. Unknown chunk ids are skipped, so extending the
  * decoder is additive.
+ *
+ * The /Summary SBEM section appended after the profile carries the
+ * pre-dive configuration: gradient factors, gas mixes, cylinder size,
+ * Max PO2 and the water type (fresh / EN13319 / salt).
  *
  * Sample time is delta-encoded: every chunk except the timeline base
  * (0x01) begins with a signed int16 LE millisecond delta. The dive start
@@ -50,6 +54,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+
+#include <libdivecomputer/units.h>
 
 #include "suunto_nautic.h"
 #include "context-private.h"
@@ -141,6 +147,18 @@
 #define SUMMARY_GAS_PPO2   5  // float32 LE, bar
 #define SUMMARY_GAS_VOLUME 9  // float32 LE, m^3
 
+// Water type setting: one uint8 just past the gradient-factor pair. Confirmed
+// on 23 /Summary blobs from 6 watches (issue #29): this byte agrees, with no
+// misclassification, with the water density independently derived from each
+// dive's pressure-vs-depth fit (which clusters tightly at 1000 / 1020 / 1030
+// kg/m^3). Values 1 and 2 seen in the wild; 0 (Fresh) follows the ordering.
+// The Nautic/Ocean expose the same three-way setting as the Mares Genius, so
+// DC_FIELD_SALINITY maps it the same way.
+#define SUMMARY_WATER_TYPE 0x3E
+#define WATER_TYPE_FRESH   0  // 1000 kg/m^3
+#define WATER_TYPE_EN13319 1  // 1020 kg/m^3
+#define WATER_TYPE_SALT    2  // 1030 kg/m^3
+
 typedef struct suunto_nautic_tank_t {
 	unsigned int used;
 	double beginpressure; // bar
@@ -174,6 +192,8 @@ typedef struct suunto_nautic_parser_t {
 	dc_decomodel_t decomodel;
 	unsigned int have_ppo2max;
 	double ppo2max; // bar, the watch's "Max PO2" setting, from /Summary Gas[0]+5
+	unsigned int have_salinity;
+	dc_salinity_t salinity; // water type, from /Summary +0x3E
 } suunto_nautic_parser_t;
 
 typedef struct sbem_chunk_t {
@@ -327,6 +347,32 @@ suunto_nautic_parse_summary (suunto_nautic_parser_t *parser, const unsigned char
 		if (ppo2 >= 0.5 && ppo2 <= 3.0) { // a sane oxygen partial-pressure limit
 			parser->ppo2max = ppo2;
 			parser->have_ppo2max = 1;
+		}
+	}
+
+	// Water type (uint8 enum) just past the gradient factors. Mirrors the
+	// Mares Genius mapping for the identical fresh / EN13319 / salt setting:
+	// a known density for EN13319, and 0.0 ("use the type default") for the
+	// plain fresh / salt presets.
+	if (size > SUMMARY_WATER_TYPE) {
+		switch (sbem[SUMMARY_WATER_TYPE]) {
+		case WATER_TYPE_FRESH:
+			parser->salinity.type = DC_WATER_FRESH;
+			parser->salinity.density = 0.0;
+			parser->have_salinity = 1;
+			break;
+		case WATER_TYPE_EN13319:
+			parser->salinity.type = DC_WATER_SALT;
+			parser->salinity.density = MSW / GRAVITY; // EN 13319: ~1019.7 kg/m^3
+			parser->have_salinity = 1;
+			break;
+		case WATER_TYPE_SALT:
+			parser->salinity.type = DC_WATER_SALT;
+			parser->salinity.density = 0.0; // the watch's "Salt" preset is ~1030
+			parser->have_salinity = 1;
+			break;
+		default:
+			break; // unknown value -> leave the field unsupported
 		}
 	}
 
@@ -606,6 +652,22 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 						break; // full tank record doesn't fit this chunk
 					if (chunk.data[base] != i)
 						break; // not a real tank slot
+
+					// Gas time remaining: u32 LE seconds at record +10, for the
+					// primary cylinder. 0xFFFFFFFF means not computed (no AI, or
+					// not enough data yet). This is the app's Cylinders[].GasTime,
+					// exposed the same way suunto_eonsteel does -- as RBT minutes.
+					if (i == 0 && callback) {
+						unsigned int gastime = array_uint32_le (chunk.data + base + 10);
+						if (gastime != 0xFFFFFFFF && gastime != 0) {
+							dc_sample_value_t sample = {0};
+							sample.time = (unsigned int) sample_ms;
+							callback (DC_SAMPLE_TIME, &sample, userdata);
+							sample.rbt = gastime / 60;
+							callback (DC_SAMPLE_RBT, &sample, userdata);
+						}
+					}
+
 					for (unsigned int field = 0; field < 2; field++) {
 						unsigned int pressure_pa = array_uint32_le (chunk.data + base + 2 + field * 4);
 						if (pressure_pa == 0)
@@ -902,6 +964,8 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 	parser->have_decomodel = 0;
 	parser->have_ppo2max = 0;
 	parser->ppo2max = 0.0;
+	parser->have_salinity = 0;
+	memset (&parser->salinity, 0, sizeof (parser->salinity));
 	memset (parser->gasmix, 0, sizeof (parser->gasmix));
 	memset (parser->gasvolume, 0, sizeof (parser->gasvolume));
 	memset (&parser->decomodel, 0, sizeof (parser->decomodel));
@@ -1028,6 +1092,11 @@ suunto_nautic_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, uns
 		if (!parser->have_ppo2max)
 			return DC_STATUS_UNSUPPORTED;
 		*((double *) value) = parser->ppo2max;
+		break;
+	case DC_FIELD_SALINITY:
+		if (!parser->have_salinity)
+			return DC_STATUS_UNSUPPORTED;
+		*((dc_salinity_t *) value) = parser->salinity;
 		break;
 	case DC_FIELD_DIVEMODE:
 		*((dc_divemode_t *) value) = parser->divemode;

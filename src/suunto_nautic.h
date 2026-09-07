@@ -48,9 +48,12 @@
  *     [value: length bytes]; length == 255 means an extended 4-byte LE
  *     length follows before the value. Unknown chunk IDs are skipped.
  *   - Decoded chunks (suunto_nautic_parser.c): 0x12 (1Hz absolute
- *     pressure / temperature), 0x16 (depth, cylinder pressures, NDL,
- *     time-to-surface), 0x0B (GPS), 0x17 (surface pressure ->
- *     DC_FIELD_ATMOSPHERIC), plus dive events and high-rate IMU.
+ *     pressure / temperature), 0x16 (depth, cylinder pressures, gas
+ *     time remaining, NDL, time-to-surface), 0x0B (GPS), 0x17 (surface
+ *     pressure -> DC_FIELD_ATMOSPHERIC), 0x08 (activity -> dive mode),
+ *     plus dive events and high-rate IMU. The /Summary section appended
+ *     after the profile carries the pre-dive configuration (gradient
+ *     factors, gas mixes, cylinder size, Max PO2, water type).
  *   - Series libdivecomputer has no sample type for (battery, GPS
  *     accuracy, 9-axis IMU, dive-route features) are emitted through
  *     DC_SAMPLE_VENDOR tagged SAMPLE_VENDOR_SUUNTO_NAUTIC, each record

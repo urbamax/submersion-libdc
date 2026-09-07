@@ -458,7 +458,18 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 	// begins with a signed int16 LE millisecond delta at payload[0:2]. The
 	// running sum is the absolute sample time -- there is no per-sample
 	// absolute timestamp and no fixed sample rate.
+	//
+	// time_ms is the raw running sum; deltas are always added to it. sample_ms
+	// is the monotonic (never-decreasing) view of that sum, and is what every
+	// emitted sample time and the dive-start datetime are derived from. They
+	// differ only across a GPS / GPS-accuracy chunk: those carry a delta on
+	// their own back-dated sub-chain that rewinds the sum a few hundred ms,
+	// after which the next chunk's delta (measured from the rewound point)
+	// walks it forward again. The raw sum stays correct for span arithmetic,
+	// but a sample emitted at the rewound value goes backwards in the profile
+	// and blows up the downstream depth interpolation (submersion-libdc#1).
 	int time_ms = 0;
+	int sample_ms = 0;
 
 	// Dive phase, from CHUNK_DIVE_STATE. Dive time is the TOTAL time spent in
 	// the Diving state (sum of every Diving span), which matches the app's
@@ -513,6 +524,8 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 		// except the timeline base carry one).
 		if (chunk.id != CHUNK_TIMELINE_BASE && chunk.size >= 2)
 			time_ms += (int16_t) array_uint16_le (chunk.data);
+		if (time_ms > sample_ms)
+			sample_ms = time_ms;
 
 		if (chunk.id == CHUNK_PROFILE_1HZ && chunk.size >= 18) {
 			double temperature = array_uint16_le (chunk.data + 16) / 100.0 - 273.15;
@@ -529,7 +542,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 
 			if (callback) {
 				dc_sample_value_t sample = {0};
-				sample.time = (unsigned int) time_ms;
+				sample.time = (unsigned int) sample_ms;
 				callback (DC_SAMPLE_TIME, &sample, userdata);
 				sample.temperature = temperature;
 				callback (DC_SAMPLE_TEMPERATURE, &sample, userdata);
@@ -548,7 +561,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 
 				if (callback) {
 					dc_sample_value_t sample = {0};
-					sample.time = (unsigned int) time_ms;
+					sample.time = (unsigned int) sample_ms;
 					callback (DC_SAMPLE_TIME, &sample, userdata);
 					sample.depth = depth;
 					callback (DC_SAMPLE_DEPTH, &sample, userdata);
@@ -619,7 +632,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 							tank[t].beginpressure = bar;
 						if (callback) {
 							dc_sample_value_t sample = {0};
-							sample.time = (unsigned int) time_ms;
+							sample.time = (unsigned int) sample_ms;
 							callback (DC_SAMPLE_TIME, &sample, userdata);
 							sample.pressure.tank = t;
 							sample.pressure.value = bar;
@@ -638,7 +651,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				double ceiling = array_float_le (chunk.data + 38);
 
 				dc_sample_value_t t = {0};
-				t.time = (unsigned int) time_ms;
+				t.time = (unsigned int) sample_ms;
 				callback (DC_SAMPLE_TIME, &t, userdata);
 
 				dc_sample_value_t deco = {0};
@@ -667,12 +680,14 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				rec[1] = gf99 & 0xFF;    rec[2] = (gf99 >> 8) & 0xFF;
 				rec[3] = gf_surf & 0xFF; rec[4] = (gf_surf >> 8) & 0xFF;
 				rec[5] = gf_lead & 0xFF; rec[6] = (gf_lead >> 8) & 0xFF;
-				suunto_nautic_emit_vendor (callback, userdata, time_ms, rec, sizeof (rec));
+				suunto_nautic_emit_vendor (callback, userdata, sample_ms, rec, sizeof (rec));
 			}
 		} else if (chunk.id == CHUNK_GPS && chunk.size >= 18) {
 			// Payload: [timeDelta:2][UTC:8 ms LE][lat:4][lon:4]. UTC is an
 			// absolute UNIX time in milliseconds; subtracting this sample's
-			// relative time (time_ms) yields the stream-start epoch, i.e. the
+			// relative time (sample_ms, the monotonic clock -- a GPS fix can
+			// land inside a GPS-chunk rewind window, and the raw sum there is
+			// off by the excursion) yields the stream-start epoch, i.e. the
 			// dive start (== the logbook id, confirmed to the second). This is
 			// the only absolute clock in the stream, so the first GPS fix sets
 			// the dive datetime.
@@ -680,9 +695,9 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 			int lat_raw = (int) array_uint32_le (chunk.data + 10);
 			int lon_raw = (int) array_uint32_le (chunk.data + 14);
 
-			if (!have_datetime && utc_ms > (unsigned long long) time_ms) {
+			if (!have_datetime && utc_ms > (unsigned long long) sample_ms) {
 				have_datetime = 1;
-				parser->datetime = (dc_ticks_t) ((utc_ms - (unsigned long long) time_ms) / 1000);
+				parser->datetime = (dc_ticks_t) ((utc_ms - (unsigned long long) sample_ms) / 1000);
 			}
 
 			if (!have_location) {
@@ -694,7 +709,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 
 			if (callback) {
 				dc_sample_value_t sample = {0};
-				sample.time = (unsigned int) time_ms;
+				sample.time = (unsigned int) sample_ms;
 				callback (DC_SAMPLE_TIME, &sample, userdata);
 				sample.location.latitude = lat_raw / 1.0e7;
 				sample.location.longitude = lon_raw / 1.0e7;
@@ -730,7 +745,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				unsigned int mapped = suunto_nautic_map_event (chunk.id, chunk.data[2]);
 				if (mapped != SAMPLE_EVENT_NONE) {
 					dc_sample_value_t sample = {0};
-					sample.time = (unsigned int) time_ms;
+					sample.time = (unsigned int) sample_ms;
 					callback (DC_SAMPLE_TIME, &sample, userdata);
 					sample.event.type = mapped;
 					sample.event.flags = SAMPLE_FLAGS_BEGIN;
@@ -748,7 +763,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				unsigned int mapped = suunto_nautic_map_event (chunk.id, chunk.data[2]);
 				if (mapped != SAMPLE_EVENT_NONE) {
 					dc_sample_value_t sample = {0};
-					sample.time = (unsigned int) time_ms;
+					sample.time = (unsigned int) sample_ms;
 					callback (DC_SAMPLE_TIME, &sample, userdata);
 					sample.event.type = mapped;
 					sample.event.flags = SAMPLE_FLAGS_BEGIN;
@@ -760,7 +775,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 			// [timeDelta:2][gasnumber:int16 LE].
 			if (callback) {
 				dc_sample_value_t sample = {0};
-				sample.time = (unsigned int) time_ms;
+				sample.time = (unsigned int) sample_ms;
 				callback (DC_SAMPLE_TIME, &sample, userdata);
 				sample.event.type = SAMPLE_EVENT_GASCHANGE;
 				sample.event.flags = SAMPLE_FLAGS_BEGIN;
@@ -780,7 +795,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				rec[2] = (voltage_mv >> 8) & 0xFF;
 				rec[3] = charge_permille & 0xFF;
 				rec[4] = (charge_permille >> 8) & 0xFF;
-				suunto_nautic_emit_vendor (callback, userdata, time_ms, rec, sizeof (rec));
+				suunto_nautic_emit_vendor (callback, userdata, sample_ms, rec, sizeof (rec));
 			}
 		} else if (chunk.id == CHUNK_GPS_ACCURACY && chunk.size >= 4) {
 			// EHPE/EVPE are int8 deltas accumulated from zero -> DC_SAMPLE_VENDOR
@@ -795,7 +810,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				rec[0] = VENDOR_KIND_GPS_ACCURACY;
 				rec[1] = e & 0xFF; rec[2] = (e >> 8) & 0xFF;
 				rec[3] = v & 0xFF; rec[4] = (v >> 8) & 0xFF;
-				suunto_nautic_emit_vendor (callback, userdata, time_ms, rec, sizeof (rec));
+				suunto_nautic_emit_vendor (callback, userdata, sample_ms, rec, sizeof (rec));
 			}
 		} else if ((chunk.id == CHUNK_IMU || chunk.id == CHUNK_IMU_ALT) && chunk.size >= 24) {
 			// High-rate IMU: 9x int16 (accel/gyro/mag X,Y,Z) at offset 6, already
@@ -807,7 +822,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				unsigned char rec[1 + 18];
 				rec[0] = VENDOR_KIND_IMU;
 				memcpy (rec + 1, chunk.data + 6, 18);
-				suunto_nautic_emit_vendor (callback, userdata, time_ms, rec, sizeof (rec));
+				suunto_nautic_emit_vendor (callback, userdata, sample_ms, rec, sizeof (rec));
 			}
 		} else if ((chunk.id == CHUNK_DIVEROUTE_FEATURES || chunk.id == CHUNK_IMU) &&
 				chunk.size >= 10 && chunk.size <= 16) {
@@ -820,7 +835,7 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				unsigned char rec[1 + 10];
 				rec[0] = VENDOR_KIND_DIVEROUTE_FEATURES;
 				memcpy (rec + 1, chunk.data + 6, 10);
-				suunto_nautic_emit_vendor (callback, userdata, time_ms, rec, sizeof (rec));
+				suunto_nautic_emit_vendor (callback, userdata, sample_ms, rec, sizeof (rec));
 			}
 		} else if (chunk.id == CHUNK_SURFACE_PRESSURE && chunk.size >= 6) {
 			// 3 Float32 values at offset 2/6/10 (SurfacePressure,

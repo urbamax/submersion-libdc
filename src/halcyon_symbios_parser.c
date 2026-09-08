@@ -278,6 +278,11 @@ halcyon_symbios_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, u
 			tank->endpressure   = parser->tank[flags].endpressure   / 10.0;
 			tank->gasmix        = parser->tank[flags].gasmix;
 			tank->usage         = parser->tank[flags].usage;
+			// A tank found through an ID_TANK_TRANSMITTER record carries a
+			// one-byte slot id tagged with TRANSMITTER_ID, not a serial;
+			// only the sensor record's 16-bit serial identifies the transmitter.
+			tank->serial        = (parser->tank[flags].id & TRANSMITTER_ID)
+				? 0 : parser->tank[flags].id;
 			break;
 		case DC_FIELD_DECOMODEL:
 			if (parser->gf_lo == UNDEFINED || parser->gf_hi == UNDEFINED)
@@ -329,6 +334,7 @@ halcyon_symbios_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 
 	unsigned int logversion = 0;
 	unsigned int time_start = UNDEFINED, time_end = UNDEFINED;
+	unsigned int surftime = 0;
 	int timezone = 0;
 	unsigned int maxdepth = 0;
 	unsigned int divemode = UNDEFINED;
@@ -414,6 +420,7 @@ halcyon_symbios_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 			atmospheric = array_uint16_le(data + offset + 16);
 			unsigned int DC_ATTR_UNUSED number = array_uint16_le(data + offset + 18);
 			unsigned int DC_ATTR_UNUSED battery = array_uint16_le(data + offset + 20);
+			surftime = array_uint16_le(data + offset + 22) * 60;
 			time_start = array_uint32_le(data + offset + 24);
 			unsigned int serial = array_uint32_le(data + offset + 28);
 			DEBUG (abstract->context, "Device: model=%u, serial=%u, firmware=%u.%u.%u, hw=%u.%u, deco=%u.%u",
@@ -726,6 +733,11 @@ halcyon_symbios_parser_samples_foreach (dc_parser_t *abstract, dc_sample_callbac
 	parser->timezone = timezone;
 	if (time_start != UNDEFINED && time_end != UNDEFINED) {
 		parser->divetime = time_end - time_start;
+		if (parser->divetime >= surftime) {
+			parser->divetime -= surftime;
+		} else {
+			parser->divetime = 0;
+		}
 	} else {
 		parser->divetime = time;
 	}

@@ -197,6 +197,12 @@ typedef struct dc_tank_t {
     double beginpressure; /* Begin pressure (bar) */
     double endpressure;   /* End pressure (bar) */
     dc_usage_t usage;
+    /* Submersion patch (tank transmitter serial): serial number of the
+     * air-integration transmitter that reported this tank's pressures, or
+     * zero when the device does not report one. Two dive computers paired to
+     * the same transmitter log the same cylinder, so this identifies the tank
+     * across computers regardless of the gas mix each had programmed. */
+    unsigned int serial;
 } dc_tank_t;
 
 typedef enum dc_decomodel_type_t {

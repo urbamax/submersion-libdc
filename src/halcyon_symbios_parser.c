@@ -278,6 +278,11 @@ halcyon_symbios_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, u
 			tank->endpressure   = parser->tank[flags].endpressure   / 10.0;
 			tank->gasmix        = parser->tank[flags].gasmix;
 			tank->usage         = parser->tank[flags].usage;
+			// A tank found through an ID_TANK_TRANSMITTER record carries a
+			// one-byte slot id tagged with TRANSMITTER_ID, not a serial;
+			// only the sensor record's 16-bit serial identifies the transmitter.
+			tank->serial        = (parser->tank[flags].id & TRANSMITTER_ID)
+				? 0 : parser->tank[flags].id;
 			break;
 		case DC_FIELD_DECOMODEL:
 			if (parser->gf_lo == UNDEFINED || parser->gf_hi == UNDEFINED)

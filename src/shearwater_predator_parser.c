@@ -819,6 +819,7 @@ shearwater_predator_parser_get_field (dc_parser_t *abstract, dc_field_type_t typ
 			tank->workpressure = 0.0;
 			tank->beginpressure = parser->tank[flags].beginpressure * 2 * PSI / BAR;
 			tank->endpressure   = parser->tank[flags].endpressure   * 2 * PSI / BAR;
+			tank->serial = parser->tank[flags].serial;
 			tank->gasmix = DC_GASMIX_UNKNOWN;
 			if (shearwater_predator_is_ccr (parser->divemode) && !parser->hpccr) {
 				switch (parser->tank[flags].name[0]) {

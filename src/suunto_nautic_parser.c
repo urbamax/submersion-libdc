@@ -1079,6 +1079,10 @@ suunto_nautic_parser_get_field (dc_parser_t *abstract, dc_field_type_t type, uns
 			return DC_STATUS_INVALIDARGS;
 		tank->type = DC_TANKVOLUME_NONE;
 		tank->volume = 0.0;
+		// The watch only lets the diver set the cylinder water capacity, not a
+		// working pressure -- its gas-time math uses a fixed 232 bar internally
+		// (DiveFooter.Gases.Gas.TankFillPressure is that constant, not user
+		// data), so there is no per-dive working pressure to report.
 		tank->workpressure = 0.0;
 		tank->beginpressure = parser->tank[flags].beginpressure;
 		tank->endpressure = parser->tank[flags].endpressure;

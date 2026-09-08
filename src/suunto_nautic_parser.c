@@ -30,9 +30,10 @@
  *
  * Decoded chunks: 0x12 (1Hz absolute pressure / temperature), 0x16
  * (depth, cylinder pressures, gas time remaining, NDL, time-to-surface),
- * 0x17 (surface pressure), 0x0B (GPS), 0x08 (activity -> dive mode), plus
- * the dynamically-assigned dive-event subgroups. Chunks 0x0E (satellite
- * info) and 0x14 (battery) have fixed lengths that are used for resync
+ * 0x17 (surface pressure), 0x0B (GPS), 0x0F (heart rate, Ocean only),
+ * 0x08 (activity -> dive mode), plus the dynamically-assigned dive-event
+ * subgroups. Chunks 0x0E (satellite info) and 0x14 (battery) have fixed
+ * lengths that are used for resync
  * (see suunto_nautic_sbem_fixed_length) but map to no dc_field/dc_sample
  * and are not otherwise decoded. Chunks 0x23/0x24 are raw accelerometer /
  * gyroscope dumps for client-side dead reckoning, emitted through
@@ -72,6 +73,7 @@
 #define SPORT_ID_MERMAIDING   62
 #define CHUNK_GPS             0x0B
 #define CHUNK_GPS_ACCURACY    0x0E // [timeDelta:2][dEHPE:int8][dEVPE:int8][?:2]
+#define CHUNK_HEARTRATE       0x0F // [timeDelta:2][hr:uint8 bpm] -- Ocean wrist HR only
 #define CHUNK_BATTERY         0x14 // [timeDelta:2][current:int16][voltage:uint16 mV][charge:uint8 %]
 // High-rate IMU: [timeDelta:2][algoTS:uint32][accel/gyro/mag X,Y,Z:int16], a
 // 24-byte payload. The chunk id is FIRMWARE-DEPENDENT: 0x23 on the 195-byte
@@ -857,6 +859,19 @@ suunto_nautic_parser_parse (dc_parser_t *abstract, dc_sample_callback_t callback
 				sample.event.flags = SAMPLE_FLAGS_BEGIN;
 				sample.event.value = (unsigned int) (int16_t) array_uint16_le (chunk.data + 2);
 				callback (DC_SAMPLE_EVENT, &sample, userdata);
+			}
+		} else if (chunk.id == CHUNK_HEARTRATE && chunk.size >= 3) {
+			// [timeDelta:2][hr:uint8 bpm]. Optical wrist HR, present only on
+			// the Suunto Ocean (the Nautic / Nautic S have no HR sensor, so
+			// the chunk never appears there). Byte-exact against the app
+			// export's per-sample HR on a real Ocean dive (66-113 bpm).
+			unsigned int hr = chunk.data[2];
+			if (hr && callback) {
+				dc_sample_value_t sample = {0};
+				sample.time = (unsigned int) sample_ms;
+				callback (DC_SAMPLE_TIME, &sample, userdata);
+				sample.heartbeat = hr;
+				callback (DC_SAMPLE_HEARTBEAT, &sample, userdata);
 			}
 		} else if (chunk.id == CHUNK_BATTERY && chunk.size >= 7) {
 			// Battery telemetry -> DC_SAMPLE_VENDOR kind 1.

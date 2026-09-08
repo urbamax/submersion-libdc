@@ -385,6 +385,13 @@ dc_parser_get_field (dc_parser_t *parser, dc_field_type_t type, unsigned int fla
 	if (parser->vtable->field == NULL)
 		return DC_STATUS_UNSUPPORTED;
 
+	// Submersion patch (tank transmitter serial): only the parsers that know
+	// a transmitter serial assign dc_tank_t.serial, so define it here for
+	// every other backend rather than leaving it to the caller's
+	// initialisation.
+	if (type == DC_FIELD_TANK && value != NULL)
+		((dc_tank_t *) value)->serial = 0;
+
 	return parser->vtable->field (parser, type, flags, value);
 }
 

@@ -898,6 +898,10 @@ shearwater_predator_parser_get_field (dc_parser_t *abstract, dc_field_type_t typ
 			// Submersion patch (Swift GPS exit) layered on top of upstream's
 			// GNSS-status detection. See
 			// packages/libdivecomputer_plugin/patches/0001-shearwater-swift-exit-gps.patch.
+			dc_location_t *location = value;
+			unsigned char gnss;
+			signed int latitude, longitude;
+			
 			unsigned int gps_rec = (flags == 1) ? parser->closing[9] : parser->opening[9];
 			if (gps_rec == UNDEFINED || parser->logversion < 17)
 				return DC_STATUS_UNSUPPORTED;
